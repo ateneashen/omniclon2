@@ -36,30 +36,111 @@ impl BackendState {
     }
 }
 
-/// Try to find a suitable Python interpreter.
-/// Currently prioritizes the development venv.
+/// Try to find a suitable Python interpreter with multiple smart fallbacks.
+/// This is critical for working both in development and after bundling.
 fn find_python_interpreter(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let dev_venv_python = PathBuf::from("C:\\AI\\OmniClon2\\backend\\.venv\\Scripts\\python.exe");
+    diagnostics::log_diagnostic(
+        app,
+        "INFO",
+        "PythonDetector",
+        "Starting Python interpreter detection...",
+        None,
+    );
 
-    if dev_venv_python.exists() {
+    let candidates: Vec<(String, PathBuf)> = build_python_candidates(app);
+
+    for (description, path) in &candidates {
         diagnostics::log_diagnostic(
             app,
             "INFO",
-            "Backend",
-            "Using development venv Python",
-            Some(&format!("path={}", dev_venv_python.display())),
+            "PythonDetector",
+            &format!("Trying: {}", description),
+            Some(&format!("path={}", path.display())),
         );
-        return Ok(dev_venv_python);
+
+        if path.exists() {
+            diagnostics::log_diagnostic(
+                app,
+                "INFO",
+                "PythonDetector",
+                "✓ Found working Python interpreter",
+                Some(&format!("{} → {}", description, path.display())),
+            );
+            return Ok(path.clone());
+        } else {
+            diagnostics::log_diagnostic(
+                app,
+                "DEBUG",
+                "PythonDetector",
+                "Not found",
+                Some(&description),
+            );
+        }
     }
 
+    // Last resort: bare "python" (rely on PATH)
     diagnostics::log_diagnostic(
         app,
         "WARN",
-        "Backend",
-        "Falling back to system 'python' in PATH",
+        "PythonDetector",
+        "No explicit venv found. Falling back to 'python' from PATH. This may fail.",
         None,
     );
+
     Ok(PathBuf::from("python"))
+}
+
+/// Build an ordered list of (description, path) candidates for the Python interpreter.
+fn build_python_candidates(app: &tauri::AppHandle) -> Vec<(String, PathBuf)> {
+    let mut candidates = Vec::new();
+
+    // 1. Try to resolve relative to the running executable (important for bundled builds)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            // Common layout after bundling: resources/backend/.venv/...
+            let bundled_windows = exe_dir
+                .join("resources")
+                .join("backend")
+                .join(".venv")
+                .join("Scripts")
+                .join("python.exe");
+            candidates.push((
+                "Bundled (next to exe - Windows)".to_string(),
+                bundled_windows,
+            ));
+
+            // Alternative layout
+            let bundled_alt = exe_dir
+                .join("backend")
+                .join(".venv")
+                .join("Scripts")
+                .join("python.exe");
+            candidates.push(("Bundled (next to exe - alt)".to_string(), bundled_alt));
+        }
+    }
+
+    // 2. Development venv - Windows (most common during `tauri dev`)
+    let dev_windows = PathBuf::from("C:\\AI\\OmniClon2\\backend\\.venv\\Scripts\\python.exe");
+    candidates.push(("Dev venv - Windows hardcoded".to_string(), dev_windows));
+
+    // Try relative to current working directory (works if running from project root)
+    let dev_windows_relative =
+        PathBuf::from("backend\\.venv\\Scripts\\python.exe");
+    candidates.push((
+        "Dev venv - relative to CWD (Windows)".to_string(),
+        dev_windows_relative,
+    ));
+
+    // 3. Try using `uv` managed environments (very common with this project)
+    // uv usually puts them in .venv at the project root or backend root
+    let uv_backend_venv = PathBuf::from("backend\\.venv\\Scripts\\python.exe");
+    candidates.push(("uv backend venv (relative)".to_string(), uv_backend_venv));
+
+    // 4. Unix-style paths (for future cross-platform support)
+    let unix_dev = PathBuf::from("backend/.venv/bin/python");
+    candidates.push(("Dev venv - Unix style".to_string(), unix_dev));
+
+    candidates
 }
 
 /// Spawn the backend and immediately start streaming its stdout/stderr
@@ -86,12 +167,22 @@ pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
             .to_string(),
     );
 
+    // Try to find a reasonable backend directory
+    let backend_dir = resolve_backend_dir();
+    diagnostics::log_diagnostic(
+        app,
+        "INFO",
+        "Backend",
+        &format!("Using backend directory: {}", backend_dir.display()),
+        None,
+    );
+
     cmd.args([
         "-m",
         "uvicorn",
         "main:app",
         "--app-dir",
-        "C:\\AI\\OmniClon2\\backend",
+        backend_dir.to_string_lossy().as_ref(),
         "--host",
         "127.0.0.1",
         "--port",
@@ -161,6 +252,38 @@ pub fn is_backend_healthy() -> bool {
         .call()
         .map(|r| r.status() == 200)
         .unwrap_or(false)
+}
+
+/// Try to resolve the directory that contains the backend Python code (main.py).
+fn resolve_backend_dir() -> PathBuf {
+    // 1. Try relative to current exe (production bundle)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let bundled = dir.join("resources").join("backend");
+            if bundled.join("main.py").exists() {
+                return bundled;
+            }
+            let alt = dir.join("backend");
+            if alt.join("main.py").exists() {
+                return alt;
+            }
+        }
+    }
+
+    // 2. Development - known location
+    let dev = PathBuf::from("C:\\AI\\OmniClon2\\backend");
+    if dev.join("main.py").exists() {
+        return dev;
+    }
+
+    // 3. Relative to CWD
+    let relative = PathBuf::from("backend");
+    if relative.join("main.py").exists() {
+        return relative;
+    }
+
+    // Fallback
+    PathBuf::from("backend")
 }
 
 /// Attempt to kill the backend process (best effort on Windows).
