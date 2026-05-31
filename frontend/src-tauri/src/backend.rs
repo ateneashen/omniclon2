@@ -1,16 +1,20 @@
-//! Sidecar management for the Python FastAPI backend.
+//! Sidecar management for the Python FastAPI backend (improved version).
 //!
-//! This module is responsible for:
-//! - Locating the correct Python interpreter (dev venv or bundled)
-//! - Spawning uvicorn with the backend
-//! - Capturing stdout/stderr into our dedicated diagnostic logs
-//! - Health checking the backend
+//! Responsibilities:
+//! - Locate Python (dev .venv first)
+//! - Spawn uvicorn
+//! - Capture stdout + stderr and stream them into our dedicated diagnostic logs
+//! - Provide health check
+//! - Graceful(ish) shutdown
 //!
-//! Heavily instrumented for debugging during the rewrite.
+//! All important events are logged through the diagnostics module so the AI
+//! has excellent visibility during development.
 
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
+use std::thread;
 
 use tauri::Manager;
 
@@ -32,16 +36,9 @@ impl BackendState {
     }
 }
 
-/// Try to find a suitable Python interpreter for the backend.
-///
-/// Priority:
-/// 1. Development: backend/.venv/Scripts/python.exe (Windows)
-/// 2. Fallback: system `python` or `python3`
+/// Try to find a suitable Python interpreter.
+/// Currently prioritizes the development venv.
 fn find_python_interpreter(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let _app_dir = app.path().app_local_data_dir().unwrap_or_default();
-
-    // Development path (when running from source)
-    // Expected structure: C:\AI\OmniClon2\backend\.venv\Scripts\python.exe
     let dev_venv_python = PathBuf::from("C:\\AI\\OmniClon2\\backend\\.venv\\Scripts\\python.exe");
 
     if dev_venv_python.exists() {
@@ -55,36 +52,40 @@ fn find_python_interpreter(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         return Ok(dev_venv_python);
     }
 
-    // TODO: Add production bundled Python lookup here later
-
-    // Last resort: hope python is in PATH
     diagnostics::log_diagnostic(
         app,
         "WARN",
         "Backend",
-        "Falling back to system Python in PATH",
+        "Falling back to system 'python' in PATH",
         None,
     );
-
-    // On Windows we usually want `python` or `py`
     Ok(PathBuf::from("python"))
 }
 
-/// Build the command to launch the backend.
-fn build_backend_command(python: &PathBuf, app: &tauri::AppHandle) -> Command {
-    let mut cmd = Command::new(python);
+/// Spawn the backend and immediately start streaming its stdout/stderr
+/// into the diagnostic logging system.
+pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
+    diagnostics::log_diagnostic(
+        app,
+        "INFO",
+        "Backend",
+        "=== Attempting to spawn Python backend ===",
+        None,
+    );
 
-    // Very important for real-time log streaming
+    let python = find_python_interpreter(app)?;
+
+    let mut cmd = Command::new(&python);
     cmd.env("PYTHONUNBUFFERED", "1");
+    cmd.env(
+        "OMNICLON2_DATA_DIR",
+        app.path()
+            .app_local_data_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string(),
+    );
 
-    // Tell the backend where to find things (we can expand this)
-    let data_dir = app
-        .path()
-        .app_local_data_dir()
-        .unwrap_or_else(|_| PathBuf::from("C:\\AI\\OmniClon2\\data"));
-    cmd.env("OMNICLON2_DATA_DIR", data_dir.to_string_lossy().to_string());
-
-    // Launch via uvicorn module
     cmd.args([
         "-m",
         "uvicorn",
@@ -100,57 +101,86 @@ fn build_backend_command(python: &PathBuf, app: &tauri::AppHandle) -> Command {
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    cmd
-}
+    let mut child = cmd.spawn().map_err(|e| {
+        let msg = format!("Failed to spawn backend process: {}", e);
+        diagnostics::log_error(app, "Backend", "Spawn failed", &e, None);
+        msg
+    })?;
 
-/// Attempt to spawn the backend process.
-/// Returns the Child if successful.
-pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
     diagnostics::log_diagnostic(
         app,
         "INFO",
         "Backend",
-        "Attempting to spawn Python backend...",
+        &format!("Backend process started (pid={})", child.id()),
         None,
     );
 
-    let python = find_python_interpreter(app)?;
-    let mut cmd = build_backend_command(&python, app);
+    // Take the pipes
+    let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
+    let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
-    diagnostics::log_diagnostic(
-        app,
-        "INFO",
-        "Backend",
-        "Spawning command",
-        Some(&format!("python={}", python.display())),
-    );
+    let app_clone_out = app.clone();
+    let app_clone_err = app.clone();
 
-    match cmd.spawn() {
-        Ok(child) => {
+    // Spawn thread for stdout
+    thread::spawn(move || {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines().flatten() {
             diagnostics::log_diagnostic(
-                app,
+                &app_clone_out,
                 "INFO",
                 "Backend",
-                &format!("Backend process spawned (pid {})", child.id()),
-                None,
+                "[stdout]",
+                Some(&line),
             );
-            Ok(child)
         }
-        Err(e) => {
-            let msg = format!("Failed to spawn backend: {}", e);
-            diagnostics::log_error(app, "Backend", "Spawn failed", &e, None);
-            Err(msg)
+    });
+
+    // Spawn thread for stderr (these are usually more important for errors)
+    thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines().flatten() {
+            diagnostics::log_diagnostic(
+                &app_clone_err,
+                "WARN", // stderr is often warnings or errors
+                "Backend",
+                "[stderr]",
+                Some(&line),
+            );
         }
-    }
+    });
+
+    Ok(child)
 }
 
-/// Simple health check against the backend.
+/// Check if the backend is responding to HTTP.
 pub fn is_backend_healthy() -> bool {
     let url = format!("http://127.0.0.1:{}/system/info", BACKEND_PORT);
+    ureq::get(&url)
+        .timeout(std::time::Duration::from_millis(600))
+        .call()
+        .map(|r| r.status() == 200)
+        .unwrap_or(false)
+}
 
-    // Use ureq (blocking) for simplicity in this early stage
-    match ureq::get(&url).timeout(std::time::Duration::from_millis(800)).call() {
-        Ok(response) => response.status() == 200,
-        Err(_) => false,
+/// Attempt to kill the backend process (best effort on Windows).
+pub fn shutdown_backend(state: &BackendState, app: &tauri::AppHandle) {
+    let mut guard = match state.child.lock() {
+        Ok(g) => g,
+        Err(_) => return,
+    };
+
+    if let Some(mut child) = guard.take() {
+        diagnostics::log_diagnostic(
+            app,
+            "INFO",
+            "Backend",
+            &format!("Shutting down backend (pid={})", child.id()),
+            None,
+        );
+
+        // On Windows we use kill() — it's not graceful but acceptable for now
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }

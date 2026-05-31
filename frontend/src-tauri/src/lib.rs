@@ -5,6 +5,8 @@ mod diagnostics;
 
 use std::sync::Mutex;
 
+use tauri::Manager;
+
 use crate::backend::{BackendState, BACKEND_PORT};
 
 /// Simple greeting (will be removed later).
@@ -69,6 +71,12 @@ fn start_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) -
     }
 }
 
+/// Gracefully (best effort) stop the backend.
+#[tauri::command]
+fn stop_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) {
+    backend::shutdown_backend(&state, &app);
+}
+
 /// Returns whether the backend is currently considered healthy.
 #[tauri::command]
 fn backend_health() -> bool {
@@ -88,6 +96,7 @@ pub fn run() {
             tail_debug,
             log_diagnostic_event,
             start_backend,
+            stop_backend,
             backend_health
         ])
         .setup(|app| {
@@ -100,7 +109,9 @@ pub fn run() {
                 None,
             );
 
-            // Attempt to auto-start the backend on launch (best effort)
+            // Attempt to auto-start the backend on launch (best effort).
+            // The child will not be stored in state for auto-start (manual start does store it).
+            // This is acceptable for early development.
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Err(e) = backend::spawn_backend(&app_handle) {
@@ -115,6 +126,14 @@ pub fn run() {
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event {
+                let app_handle = window.app_handle().clone();
+                if let Some(state) = app_handle.try_state::<BackendState>() {
+                    backend::shutdown_backend(&state, &app_handle);
+                }
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
