@@ -58,12 +58,8 @@ fn start_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) -
         }
     }
 
-    match backend::spawn_backend(&app) {
-        Ok(child) => {
-            let mut guard = state.child.lock().map_err(|e| e.to_string())?;
-            *guard = Some(child);
-            Ok(format!("Backend spawned on port {}", BACKEND_PORT))
-        }
+    match backend::spawn_backend(&app, &state) {
+        Ok(()) => Ok(format!("Backend spawned on port {}", BACKEND_PORT)),
         Err(e) => {
             diagnostics::log_error(&app, "Backend", "Failed to start backend from command", &e, None);
             Err(e)
@@ -83,6 +79,12 @@ fn backend_health() -> bool {
     backend::is_backend_healthy()
 }
 
+/// Returns detailed status of the backend (for UI and debugging).
+#[tauri::command]
+fn get_backend_status(state: tauri::State<'_, BackendState>) -> backend::BackendStatus {
+    state.get_status()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -97,7 +99,8 @@ pub fn run() {
             log_diagnostic_event,
             start_backend,
             stop_backend,
-            backend_health
+            backend_health,
+            get_backend_status
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)
@@ -110,18 +113,18 @@ pub fn run() {
             );
 
             // Attempt to auto-start the backend on launch (best effort).
-            // The child will not be stored in state for auto-start (manual start does store it).
-            // This is acceptable for early development.
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
-                if let Err(e) = backend::spawn_backend(&app_handle) {
-                    diagnostics::log_error(
-                        &app_handle,
-                        "Backend",
-                        "Auto-start of backend failed",
-                        &e,
-                        None,
-                    );
+                if let Some(state) = app_handle.try_state::<BackendState>() {
+                    if let Err(e) = backend::spawn_backend(&app_handle, &state) {
+                        diagnostics::log_error(
+                            &app_handle,
+                            "Backend",
+                            "Auto-start of backend failed",
+                            &e,
+                            None,
+                        );
+                    }
                 }
             });
 

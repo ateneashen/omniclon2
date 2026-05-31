@@ -23,16 +23,41 @@ use crate::diagnostics;
 /// Port used by the OmniClon 2 backend.
 pub const BACKEND_PORT: u16 = 17493;
 
+/// Represents the current state of the backend process.
+#[derive(Debug, Clone, serde::Serialize)]
+pub enum BackendStatus {
+    NotStarted,
+    Starting,
+    Running { pid: u32 },
+    Failed { error: String },
+    Stopped,
+}
+
 /// Manages the lifecycle of the Python backend process.
 pub struct BackendState {
     pub child: Mutex<Option<Child>>,
+    pub status: Mutex<BackendStatus>,
 }
 
 impl BackendState {
     pub fn new() -> Self {
         Self {
             child: Mutex::new(None),
+            status: Mutex::new(BackendStatus::NotStarted),
         }
+    }
+
+    pub fn set_status(&self, new_status: BackendStatus) {
+        if let Ok(mut guard) = self.status.lock() {
+            *guard = new_status;
+        }
+    }
+
+    pub fn get_status(&self) -> BackendStatus {
+        self.status
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or(BackendStatus::NotStarted)
     }
 }
 
@@ -145,7 +170,12 @@ fn build_python_candidates(app: &tauri::AppHandle) -> Vec<(String, PathBuf)> {
 
 /// Spawn the backend and immediately start streaming its stdout/stderr
 /// into the diagnostic logging system.
-pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
+/// 
+/// This version properly updates the BackendState.
+pub fn spawn_backend(
+    app: &tauri::AppHandle,
+    state: &BackendState,
+) -> Result<(), String> {
     diagnostics::log_diagnostic(
         app,
         "INFO",
@@ -153,6 +183,8 @@ pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
         "=== Attempting to spawn Python backend ===",
         None,
     );
+
+    state.set_status(BackendStatus::Starting);
 
     let python = find_python_interpreter(app)?;
 
@@ -195,25 +227,27 @@ pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
     let mut child = cmd.spawn().map_err(|e| {
         let msg = format!("Failed to spawn backend process: {}", e);
         diagnostics::log_error(app, "Backend", "Spawn failed", &e, None);
+        state.set_status(BackendStatus::Failed { error: msg.clone() });
         msg
     })?;
 
+    let pid = child.id();
     diagnostics::log_diagnostic(
         app,
         "INFO",
         "Backend",
-        &format!("Backend process started (pid={})", child.id()),
+        &format!("Backend process started successfully (pid={})", pid),
         None,
     );
 
-    // Take the pipes
+    // Take the pipes before moving child
     let stdout = child.stdout.take().ok_or("Failed to capture stdout")?;
     let stderr = child.stderr.take().ok_or("Failed to capture stderr")?;
 
     let app_clone_out = app.clone();
     let app_clone_err = app.clone();
 
-    // Spawn thread for stdout
+    // Spawn threads to pipe logs
     thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines().flatten() {
@@ -227,13 +261,12 @@ pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
         }
     });
 
-    // Spawn thread for stderr (these are usually more important for errors)
     thread::spawn(move || {
         let reader = BufReader::new(stderr);
         for line in reader.lines().flatten() {
             diagnostics::log_diagnostic(
                 &app_clone_err,
-                "WARN", // stderr is often warnings or errors
+                "WARN",
                 "Backend",
                 "[stderr]",
                 Some(&line),
@@ -241,7 +274,15 @@ pub fn spawn_backend(app: &tauri::AppHandle) -> Result<Child, String> {
         }
     });
 
-    Ok(child)
+    // Store the child and update status
+    {
+        let mut guard = state.child.lock().map_err(|e| e.to_string())?;
+        *guard = Some(child);
+    }
+
+    state.set_status(BackendStatus::Running { pid });
+
+    Ok(())
 }
 
 /// Check if the backend is responding to HTTP.
@@ -294,16 +335,19 @@ pub fn shutdown_backend(state: &BackendState, app: &tauri::AppHandle) {
     };
 
     if let Some(mut child) = guard.take() {
+        let pid = child.id();
         diagnostics::log_diagnostic(
             app,
             "INFO",
             "Backend",
-            &format!("Shutting down backend (pid={})", child.id()),
+            &format!("Shutting down backend (pid={})", pid),
             None,
         );
 
         // On Windows we use kill() — it's not graceful but acceptable for now
         let _ = child.kill();
         let _ = child.wait();
+
+        state.set_status(BackendStatus::Stopped);
     }
 }
