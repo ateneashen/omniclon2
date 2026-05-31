@@ -1,8 +1,11 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
+mod backend;
 mod diagnostics;
 
-use tauri::Manager;
+use std::sync::Mutex;
+
+use crate::backend::{BackendState, BACKEND_PORT};
 
 /// Simple greeting (will be removed later).
 #[tauri::command]
@@ -41,17 +44,51 @@ fn log_diagnostic_event(
     );
 }
 
+/// Try to start the Python backend (if not already running).
+#[tauri::command]
+fn start_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) -> Result<String, String> {
+    diagnostics::log_diagnostic(&app, "INFO", "Backend", "start_backend command called", None);
+
+    {
+        let guard = state.child.lock().map_err(|e| e.to_string())?;
+        if guard.is_some() {
+            return Ok("Backend already running".to_string());
+        }
+    }
+
+    match backend::spawn_backend(&app) {
+        Ok(child) => {
+            let mut guard = state.child.lock().map_err(|e| e.to_string())?;
+            *guard = Some(child);
+            Ok(format!("Backend spawned on port {}", BACKEND_PORT))
+        }
+        Err(e) => {
+            diagnostics::log_error(&app, "Backend", "Failed to start backend from command", &e, None);
+            Err(e)
+        }
+    }
+}
+
+/// Returns whether the backend is currently considered healthy.
+#[tauri::command]
+fn backend_health() -> bool {
+    backend::is_backend_healthy()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .manage(BackendState::new())
         .invoke_handler(tauri::generate_handler![
             greet,
             tail_errors,
             tail_debug,
-            log_diagnostic_event
+            log_diagnostic_event,
+            start_backend,
+            backend_health
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)
@@ -62,6 +99,21 @@ pub fn run() {
                 "OmniClon 2 desktop app started",
                 None,
             );
+
+            // Attempt to auto-start the backend on launch (best effort)
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                if let Err(e) = backend::spawn_backend(&app_handle) {
+                    diagnostics::log_error(
+                        &app_handle,
+                        "Backend",
+                        "Auto-start of backend failed",
+                        &e,
+                        None,
+                    );
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
