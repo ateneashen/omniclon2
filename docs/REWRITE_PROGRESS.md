@@ -43,6 +43,77 @@ This is the primary source of truth for the history of this clean rewrite.
 
 ---
 
+## 2026-06-XX — Phase 0: Foundation Scaffolding Complete (Repo + Backend + Frontend)
+
+**Milestone achieved:** Clean hybrid project skeleton is now in place.
+
+### What Was Built
+- Fresh Git repository at `C:\AI\OmniClon2` (completely independent of previous prototype).
+- Core documentation:
+  - `README.md`
+  - `docs/REWRITE_PROGRESS.md` (this living log)
+  - `docs/ARCHITECTURE.md`
+  - `docs/ADR/0001-hybrid-architecture.md` (foundational decision)
+- Comprehensive `.gitignore` tailored for Tauri + Python + heavy ML.
+- **Python backend** (`backend/`):
+  - Initialized with `uv` (Python 3.11)
+  - FastAPI + uvicorn + core deps (pydantic, soundfile, numpy, etc.)
+  - Clean `main.py` with lifespan, `/system/info` (critical for sidecar health checks), and `/health`.
+- **Tauri frontend** (`frontend/` — reference layout):
+  - `frontend/src-tauri/` (Rust) + `frontend/src/` (React 19 + TS)
+  - Proper product naming ("OmniClon 2", identifier `com.omniclon.studio2`)
+  - npm dependencies installed.
+
+### Commits
+- `375355f` — Initial clean repo + docs
+- `d9575c7` — Python backend skeleton
+- `57670fc` — Tauri frontend scaffold
+- `cc46bd7` — Product naming fixes
+
+### Observations
+- `uv` is available and working well on this Windows machine.
+- The reference layout (`frontend/src-tauri`) works cleanly.
+- We now have a solid base to implement the most important Phase 0 deliverable: **the dedicated diagnostic logging system + robust sidecar bootstrap**.
+
+**Next Critical Work (highest priority):**
+- Port/adapt robust Rust sidecar management (`backend.rs` style)
+- Build the **dedicated diagnostic logging system** (Rust + Python) designed for fast AI debugging
+- Implement bootstrap stages + live log streaming to splash screen
+- Tauri commands for logs, retry, clean, etc.
+
+**Status:** Phase 0 — Foundation scaffolding complete. Ready for the hard parts (sidecar + logging).
+
+---
+
+## 2026-06-XX — Phase 0: Dedicated Diagnostic Logging System Implemented
+
+**Major milestone:** The highest-priority feature for AI-assisted development during the rewrite is now live.
+
+### What Was Delivered
+- `frontend/src-tauri/src/diagnostics.rs`:
+  - `omniclon2-debug.log` (high verbosity)
+  - `omniclon2-errors.log` (clean, errors + warnings only)
+  - `log_diagnostic()` and `log_error()` with rich component + context
+  - `tail_errors()` and `tail_debug()` — exactly what the AI needs to quickly understand failures
+- Exposed as Tauri commands (`tail_errors`, `tail_debug`, `log_diagnostic_event`)
+- Automatically creates proper Windows logs directory under `%LOCALAPPDATA%\OmniClon2\Logs`
+- First usage: App startup is already being logged to the new system
+
+### Why This Matters
+The user specifically requested strong error logs that I (the AI) can read on demand during testing and bug fixing. This module was built with that exact use case as the #1 design goal.
+
+### Commits
+- `566cdff` — Diagnostic logging foundation
+
+### Next Steps
+- Wire frontend (React) to use `log_diagnostic_event` for important actions (especially A/B Roll and cloning attempts)
+- Continue building the Python side of logging (structured + also writing to the same dedicated files when possible)
+- Move on to full sidecar bootstrap (launching the Python backend reliably)
+
+**Status:** Phase 0 — Diagnostic logging system is operational. Excellent foundation for the rest of the rewrite.
+
+---
+
 ## [Future entries will be added after every major milestone or difficult problem]
 
 **Template for future entries:**
