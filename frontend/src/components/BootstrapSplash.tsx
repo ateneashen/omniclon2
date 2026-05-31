@@ -129,6 +129,12 @@ export default function BootstrapSplash() {
     alert('Last errors copied to clipboard. Paste them when asking for help.');
   };
 
+  const handleCopyFullLog = async () => {
+    const fullLog = logs.map(l => l.line).join('\n');
+    await navigator.clipboard.writeText(fullLog);
+    alert('Full recent log copied. Excellent for detailed debugging.');
+  };
+
   const handleOpenLogs = async () => {
     // For now just alert — later we can use shell to open the folder
     alert('Diagnostic logs are at %LOCALAPPDATA%\\OmniClon2\\Logs');
@@ -154,7 +160,7 @@ export default function BootstrapSplash() {
           </div>
         </div>
 
-        {/* Stage */}
+        {/* Stage + Progress */}
         <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <div className={`w-3 h-3 rounded-full ${isReady ? 'bg-emerald-500' : 'bg-[#00b4d8] animate-pulse'}`} />
@@ -164,6 +170,15 @@ export default function BootstrapSplash() {
           {status?.message && (
             <div className="pl-6 mt-1 text-xs text-white/50">{status.message}</div>
           )}
+
+          {/* Simple progress bar */}
+          <div className="pl-6 mt-3">
+            <div className="h-1 bg-white/10 rounded overflow-hidden">
+              <div 
+                className={`h-full transition-all duration-300 ${isReady ? 'bg-emerald-500 w-full' : 'bg-[#00b4d8] w-2/3 animate-pulse'}`} 
+              />
+            </div>
+          </div>
         </div>
 
         {/* Hints */}
@@ -218,6 +233,13 @@ export default function BootstrapSplash() {
             className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 text-sm font-medium transition"
           >
             Copy Error
+          </button>
+
+          <button
+            onClick={handleCopyFullLog}
+            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 text-sm font-medium transition"
+          >
+            Copy Full Log
           </button>
 
           <button
