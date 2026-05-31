@@ -85,6 +85,18 @@ fn get_backend_status(state: tauri::State<'_, BackendState>) -> backend::Backend
     state.get_status()
 }
 
+/// Rich bootstrap status for the ambitious splash screen.
+#[tauri::command]
+fn get_bootstrap_status(state: tauri::State<'_, BackendState>) -> backend::BootstrapStatus {
+    backend::get_bootstrap_status(&state)
+}
+
+/// Restart the backend (stop + start).
+#[tauri::command]
+fn restart_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) -> Result<(), String> {
+    backend::restart_backend(&app, &state)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -100,7 +112,9 @@ pub fn run() {
             start_backend,
             stop_backend,
             backend_health,
-            get_backend_status
+            get_backend_status,
+            get_bootstrap_status,
+            restart_backend
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)

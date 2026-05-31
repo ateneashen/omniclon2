@@ -33,6 +33,15 @@ pub enum BackendStatus {
     Stopped,
 }
 
+/// Combined information useful for the bootstrap splash screen.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BootstrapStatus {
+    pub backend_status: BackendStatus,
+    pub is_healthy: bool,
+    pub stage: String,           // "checking" | "starting_backend" | "ready" | "failed"
+    pub message: Option<String>,
+}
+
 /// Manages the lifecycle of the Python backend process.
 pub struct BackendState {
     pub child: Mutex<Option<Child>>,
@@ -116,7 +125,7 @@ fn find_python_interpreter(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 }
 
 /// Build an ordered list of (description, path) candidates for the Python interpreter.
-fn build_python_candidates(app: &tauri::AppHandle) -> Vec<(String, PathBuf)> {
+fn build_python_candidates(_app: &tauri::AppHandle) -> Vec<(String, PathBuf)> {
     let mut candidates = Vec::new();
 
     // 1. Try to resolve relative to the running executable (important for bundled builds)
@@ -282,6 +291,23 @@ pub fn spawn_backend(
 
     state.set_status(BackendStatus::Running { pid });
 
+    // Start a lightweight monitor that logs if the backend stops responding
+    let app_clone = app.clone();
+    thread::spawn(move || {
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if !is_backend_healthy() {
+                diagnostics::log_diagnostic(
+                    &app_clone,
+                    "WARN",
+                    "BackendMonitor",
+                    "Backend health check failed (may have crashed or is still starting)",
+                    None,
+                );
+            }
+        }
+    });
+
     Ok(())
 }
 
@@ -349,5 +375,42 @@ pub fn shutdown_backend(state: &BackendState, app: &tauri::AppHandle) {
         let _ = child.wait();
 
         state.set_status(BackendStatus::Stopped);
+    }
+}
+
+/// Attempts a clean restart of the backend.
+pub fn restart_backend(app: &tauri::AppHandle, state: &BackendState) -> Result<(), String> {
+    diagnostics::log_diagnostic(app, "INFO", "Backend", "Restart requested", None);
+
+    shutdown_backend(state, app);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    spawn_backend(app, state)
+}
+
+/// Returns combined information useful for an ambitious bootstrap splash screen.
+pub fn get_bootstrap_status(state: &BackendState) -> BootstrapStatus {
+    let backend_status = state.get_status();
+    let is_healthy = is_backend_healthy();
+
+    let (stage, message) = match &backend_status {
+        BackendStatus::NotStarted => ("checking", Some("Preparing environment...".to_string())),
+        BackendStatus::Starting => ("starting_backend", Some("Launching Python backend...".to_string())),
+        BackendStatus::Running { .. } => {
+            if is_healthy {
+                ("ready", Some("Backend is healthy and ready.".to_string()))
+            } else {
+                ("starting_backend", Some("Waiting for backend to respond...".to_string()))
+            }
+        }
+        BackendStatus::Failed { error } => ("failed", Some(error.clone())),
+        BackendStatus::Stopped => ("failed", Some("Backend process was stopped.".to_string())),
+    };
+
+    BootstrapStatus {
+        backend_status,
+        is_healthy,
+        stage: stage.to_string(),
+        message,
     }
 }
