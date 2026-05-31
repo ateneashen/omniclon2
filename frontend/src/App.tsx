@@ -2,51 +2,55 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BootstrapSplash from "./components/BootstrapSplash";
 
-// Basic main editor layout (starting the real interface in Paso 3)
+import Timeline from './components/timeline/Timeline';
+
+// Real editor layout - Timeline + A/B Roll work has begun
 function MainInterface() {
   return (
     <div className="h-screen w-screen bg-[#0a0a0a] text-white flex flex-col">
       {/* Header */}
-      <div className="h-12 border-b border-white/10 flex items-center px-4 text-sm font-medium">
-        OmniClon 2 — Voice Clone Studio <span className="ml-2 text-xs text-white/40">(Phase 0 → Interface)</span>
+      <div className="h-12 border-b border-white/10 flex items-center px-4 text-sm font-medium justify-between">
+        <div>
+          OmniClon 2 — Voice Clone Studio <span className="ml-2 text-xs text-white/40">(Timeline + A/B Roll in active development)</span>
+        </div>
+        <div className="text-xs text-emerald-400">Backend connected</div>
       </div>
 
       {/* Main 3-column layout */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Media Panel */}
-        <div className="w-64 border-r border-white/10 p-3 text-sm">
-          <div className="font-medium mb-2">Media</div>
-          <div className="text-white/40 text-xs">Drag & drop video clips here (coming soon)</div>
+        <div className="w-64 border-r border-white/10 p-3 text-sm flex flex-col">
+          <div className="font-medium mb-3 flex items-center justify-between">
+            Media
+            <button className="text-xs px-2 py-0.5 bg-white/10 rounded hover:bg-white/15">Import</button>
+          </div>
+          <div className="flex-1 text-white/40 text-xs border border-dashed border-white/20 rounded flex items-center justify-center">
+            Drag & drop video clips
+          </div>
         </div>
 
         {/* Center: Preview + Timeline */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Video Preview */}
-          <div className="flex-1 flex items-center justify-center bg-black/40 text-white/40 text-sm">
-            Video Preview + Playback Controls<br />
-            (A/B Roll timeline coming in this phase)
+          <div className="flex-1 flex items-center justify-center bg-black/60 text-white/50 text-sm relative">
+            <div>Video Preview Area</div>
+            <div className="absolute bottom-3 right-3 text-[10px] text-white/30">Playback controls coming soon</div>
           </div>
 
-          {/* Timeline placeholder */}
-          <div className="h-40 border-t border-white/10 bg-[#111] p-3 text-xs">
-            <div className="text-white/60 mb-1">A/B Roll Timeline (in progress)</div>
-            <div className="h-20 bg-black/50 rounded flex items-center justify-center text-white/30">
-              Waveform + Draggable A/B handles will go here
-            </div>
-          </div>
+          {/* Real Timeline Component */}
+          <Timeline />
         </div>
 
         {/* Right: Voice Panel */}
-        <div className="w-72 border-l border-white/10 p-3 text-sm">
-          <div className="font-medium mb-2">Voice & Cloning</div>
-          <div className="text-white/40 text-xs">
-            Emotion tags, style controls, model selector, and Generate button will live here.
+        <div className="w-72 border-l border-white/10 p-3 text-sm flex flex-col">
+          <div className="font-medium mb-3">Voice & Cloning</div>
+          <div className="flex-1 text-white/40 text-xs">
+            Model selector, emotion tags, reference audio from A-B, and Generate will be here.
+          </div>
+          <div className="text-[10px] text-white/30 mt-auto pt-2 border-t border-white/10">
+            A/B Roll region will feed the voice reference
           </div>
         </div>
-      </div>
-
-      <div className="h-8 border-t border-white/10 text-[10px] text-white/40 flex items-center px-4">
-        Backend connected • Diagnostic logging active
       </div>
     </div>
   );

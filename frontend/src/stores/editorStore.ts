@@ -1,0 +1,103 @@
+import { create } from 'zustand';
+import { Region, MediaClip, WaveformData } from '../types';
+
+interface EditorState {
+  // Current project
+  clips: MediaClip[];
+  activeClipId: string | null;
+
+  // Timeline state
+  currentTime: number;
+  duration: number;
+  region: Region;           // A-B selection
+  zoom: number;
+  isLooping: boolean;
+  isPlaying: boolean;
+
+  // Waveform
+  waveform: WaveformData | null;
+
+  // Actions
+  setActiveClip: (id: string | null) => void;
+  addClip: (clip: MediaClip) => void;
+  removeClip: (id: string) => void;
+
+  setCurrentTime: (time: number) => void;
+  setDuration: (duration: number) => void;
+  setRegion: (region: Partial<Region>) => void;
+  setZoom: (zoom: number) => void;
+  toggleLoop: () => void;
+  setPlaying: (playing: boolean) => void;
+  setWaveform: (waveform: WaveformData | null) => void;
+
+  // A/B helpers
+  setMarkA: (time: number) => void;
+  setMarkB: (time: number) => void;
+  resetRegion: () => void;
+}
+
+export const useEditorStore = create<EditorState>((set, get) => ({
+  clips: [],
+  activeClipId: null,
+
+  currentTime: 0,
+  duration: 0,
+  region: { start: 0, end: 0 },
+  zoom: 1,
+  isLooping: false,
+  isPlaying: false,
+  waveform: null,
+
+  setActiveClip: (id) => set({ activeClipId: id }),
+  
+  addClip: (clip) => set((state) => ({
+    clips: [...state.clips, clip],
+    activeClipId: clip.id,
+    duration: clip.duration,
+    region: { start: 0, end: clip.duration },
+  })),
+
+  removeClip: (id) => set((state) => {
+    const newClips = state.clips.filter(c => c.id !== id);
+    return {
+      clips: newClips,
+      activeClipId: state.activeClipId === id ? (newClips[0]?.id ?? null) : state.activeClipId,
+    };
+  }),
+
+  setCurrentTime: (time) => set({ currentTime: Math.max(0, Math.min(time, get().duration)) }),
+  
+  setDuration: (duration) => set({ duration }),
+  
+  setRegion: (region) => set((state) => ({
+    region: {
+      start: Math.max(0, region.start ?? state.region.start),
+      end: Math.min(state.duration, region.end ?? state.region.end),
+    }
+  })),
+
+  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(100, zoom)) }),
+  
+  toggleLoop: () => set((state) => ({ isLooping: !state.isLooping })),
+  
+  setPlaying: (playing) => set({ isPlaying: playing }),
+  
+  setWaveform: (waveform) => set({ waveform }),
+
+  setMarkA: (time) => {
+    const { region, duration } = get();
+    const newStart = Math.max(0, Math.min(time, region.end - 0.01));
+    set({ region: { ...region, start: newStart } });
+  },
+
+  setMarkB: (time) => {
+    const { region, duration } = get();
+    const newEnd = Math.min(duration, Math.max(time, region.start + 0.01));
+    set({ region: { ...region, end: newEnd } });
+  },
+
+  resetRegion: () => {
+    const { duration } = get();
+    set({ region: { start: 0, end: duration } });
+  },
+}));
