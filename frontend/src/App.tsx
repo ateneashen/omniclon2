@@ -1,51 +1,48 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import BootstrapSplash from "./components/BootstrapSplash";
+
+// Temporary main interface placeholder
+function MainInterface() {
+  return (
+    <div className="h-screen w-screen bg-[#0a0a0a] text-white flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-3xl font-semibold mb-3">OmniClon 2</h1>
+        <p className="text-white/60">Main interface coming soon (A/B Roll + Voice Cloning)</p>
+        <p className="text-xs text-white/40 mt-8">Backend is running. Phase 0 complete.</p>
+      </div>
+    </div>
+  );
+}
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [isReady, setIsReady] = useState(false);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  // Simple readiness check — in a real ambitious version this would come from the splash itself
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const status: any = await invoke("get_bootstrap_status");
+        if (status.is_healthy && status.stage === "ready") {
+          // Small delay for polish
+          setTimeout(() => setIsReady(true), 650);
+        }
+      } catch {
+        // ignore during early bootstrap
+      }
+    };
+
+    const interval = setInterval(check, 900);
+    check();
+
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!isReady) {
+    return <BootstrapSplash />;
   }
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
+  return <MainInterface />;
 }
 
 export default App;
