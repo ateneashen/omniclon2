@@ -1,0 +1,116 @@
+# OmniClon 2 — Comprehensive .gitignore for hybrid Tauri + Python + ML project
+
+# --- General ---
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.swo
+.env
+.env.local
+.env.*.local
+
+# --- Logs (we keep the directory but usually ignore runtime logs) ---
+logs/
+!logs/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments (uv + standard)
+.venv/
+venv/
+ENV/
+env/
+backend/.venv/
+backend/venv/
+
+# uv
+uv.lock
+!uv.lock   # We usually want to commit uv.lock for reproducibility (reference does this)
+
+# PyInstaller
+*.manifest
+*.spec
+
+# --- Node / Frontend ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.tsbuildinfo
+.vite/
+
+# --- Rust / Tauri ---
+src-tauri/target/
+src-tauri/Cargo.lock
+!src-tauri/Cargo.lock   # Usually committed
+src-tauri/gen/
+src-tauri/tauri.conf.json.bak
+
+# --- ML / Models (we do NOT want to accidentally commit large models) ---
+models/
+hf_cache/
+*.onnx
+*.safetensors
+*.bin
+*.pth
+*.pt
+*.gguf
+
+# But allow small config files if someone wants to commit example metadata
+!models/.gitkeep
+!models/README.md
+
+# --- IDE & Editors ---
+.idea/
+.vscode/
+*.code-workspace
+.history/
+
+# --- OS generated ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# --- Temporary & Build artifacts ---
+temp/
+tmp/
+*.wav
+*.mp3
+*.mp4
+*.mov
+!tests/fixtures/*.mp4   # allow small test fixtures if we add them later
+
+# --- Diagnostic / AI debugging artifacts (we usually want these local only) ---
+*.diagnostic-bundle.zip
+crash-*.log
+
+# --- Tauri bundle outputs ---
+src-tauri/target/release/bundle/
+
+# Keep important empty directories
+!logs/.gitkeep
+!backend/.gitkeep
+!frontend/.gitkeep
