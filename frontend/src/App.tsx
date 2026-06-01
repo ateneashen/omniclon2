@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BootstrapSplash from "./components/BootstrapSplash";
+import { useEditorStore } from "./stores/editorStore";
+import { MediaClip } from "./types";
 
 import Timeline from './components/timeline/Timeline';
 
@@ -22,10 +24,29 @@ function MainInterface() {
         <div className="w-64 border-r border-white/10 p-3 text-sm flex flex-col">
           <div className="font-medium mb-3 flex items-center justify-between">
             Media
-            <button className="text-xs px-2 py-0.5 bg-white/10 rounded hover:bg-white/15">Import</button>
+            <button 
+              onClick={async () => {
+                // Simple test import for development
+                const testPath = "C:\\AI\\OmniClon2\\tests\\fixtures\\sample.mp4";
+                try {
+                  const clip = await invoke<MediaClip>("import_media", { path: testPath });
+                  useEditorStore.getState().addClip(clip);
+                  
+                  // Load real waveform
+                  const wf = await invoke<any>("extract_waveform", { path: clip.path });
+                  useEditorStore.getState().setWaveform(wf);
+                } catch (e) {
+                  console.error("Import failed", e);
+                  alert("Test import failed. Check logs.");
+                }
+              }}
+              className="text-xs px-2 py-0.5 bg-white/10 rounded hover:bg-white/15"
+            >
+              Load Test
+            </button>
           </div>
           <div className="flex-1 text-white/40 text-xs border border-dashed border-white/20 rounded flex items-center justify-center">
-            Drag & drop video clips
+            Drag & drop video clips (coming soon)
           </div>
         </div>
 

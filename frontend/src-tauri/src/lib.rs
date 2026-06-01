@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 
 mod backend;
+mod commands;
 mod diagnostics;
 
 use std::sync::Mutex;
@@ -114,7 +115,10 @@ pub fn run() {
             backend_health,
             get_backend_status,
             get_bootstrap_status,
-            restart_backend
+            restart_backend,
+            commands::media::import_media,
+            commands::media::extract_waveform,
+            commands::media::extract_segment
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)
