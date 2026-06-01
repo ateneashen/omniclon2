@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import BootstrapSplash from "./components/BootstrapSplash";
 import { useEditorStore } from "./stores/editorStore";
 import { MediaClip } from "./types";
+import VideoPreview from "./components/preview/VideoPreview";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 
 import Timeline from './components/timeline/Timeline';
 
@@ -52,24 +54,52 @@ function MainInterface() {
 
         {/* Center: Preview + Timeline */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Video Preview */}
-          <div className="flex-1 flex items-center justify-center bg-black/60 text-white/50 text-sm relative">
-            <div>Video Preview Area</div>
-            <div className="absolute bottom-3 right-3 text-[10px] text-white/30">Playback controls coming soon</div>
-          </div>
+          {/* Real Video Preview */}
+          <VideoPreview />
 
           {/* Real Timeline Component */}
-          <Timeline />
+          <div className="border-t border-white/10 bg-[#111]">
+            <div className="flex items-center gap-2 px-3 py-1 text-xs border-b border-white/10">
+              <button onClick={() => useEditorStore.getState().setPlaying(!useEditorStore.getState().isPlaying)} className="px-2 py-0.5 bg-white/10 rounded">
+                {useEditorStore.getState().isPlaying ? 'Pause' : 'Play'}
+              </button>
+              <button onClick={() => useEditorStore.getState().setCurrentTime(0)} className="px-2 py-0.5 bg-white/10 rounded">Reset</button>
+              <span className="text-white/50">A/B Loop: {useEditorStore.getState().isLooping ? 'ON' : 'OFF'}</span>
+            </div>
+            <Timeline />
+          </div>
         </div>
 
-        {/* Right: Voice Panel */}
+        {/* Right: Voice Panel (early) */}
         <div className="w-72 border-l border-white/10 p-3 text-sm flex flex-col">
           <div className="font-medium mb-3">Voice & Cloning</div>
-          <div className="flex-1 text-white/40 text-xs">
-            Model selector, emotion tags, reference audio from A-B, and Generate will be here.
+          <div className="flex-1 text-white/40 text-xs space-y-2">
+            <div>Model selector + Emotion/Style tags (coming)</div>
+            <button 
+              onClick={async () => {
+                const { activeClipId, clips, region } = useEditorStore.getState();
+                if (!activeClipId) return alert("No clip selected");
+                const clip = clips.find(c => c.id === activeClipId);
+                if (!clip) return;
+
+                try {
+                  const outPath = await invoke<string>("extract_segment", {
+                    path: clip.path,
+                    startTime: region.start,
+                    endTime: region.end
+                  });
+                  alert(`A-B segment exported to:\n${outPath}\n\nReady to use as voice reference.`);
+                } catch (e) {
+                  alert("Export failed: " + e);
+                }
+              }}
+              className="w-full mt-2 px-3 py-1.5 bg-[#00b4d8] text-black text-xs font-medium rounded hover:bg-[#0099b8]"
+            >
+              Export A-B as Voice Reference
+            </button>
           </div>
           <div className="text-[10px] text-white/30 mt-auto pt-2 border-t border-white/10">
-            A/B Roll region will feed the voice reference
+            A/B region → Voice reference
           </div>
         </div>
       </div>
@@ -78,6 +108,7 @@ function MainInterface() {
 }
 
 function App() {
+  useKeyboardShortcuts();
   const [isReady, setIsReady] = useState(false);
 
   // Simple readiness check — in a real ambitious version this would come from the splash itself
