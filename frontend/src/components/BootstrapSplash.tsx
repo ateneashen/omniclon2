@@ -1,13 +1,8 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { openPath } from '@tauri-apps/plugin-opener';
+import { useBackendStatus } from '../hooks/useBackendStatus';
 import ModelsSplashSection from './splash/ModelsSplashSection';
-
-interface BootstrapStatus {
-  backend_status: any;
-  is_healthy: boolean;
-  stage: string;
-  message: string | null;
-}
 
 interface LogLine {
   line: string;
@@ -49,7 +44,7 @@ function detectHints(logs: string[]): string[] {
   if (combined.includes('module not found') || combined.includes('import')) {
     hints.push('Missing Python dependency. A full restart may help.');
   }
-  if (hints.length === 0 && logs.some(l => l.toLowerCase().includes('error'))) {
+  if (hints.length === 0 && logs.some((l) => l.toLowerCase().includes('error'))) {
     hints.push('An error occurred. Use "Copy Error" and paste it for support.');
   }
 
@@ -57,37 +52,34 @@ function detectHints(logs: string[]): string[] {
 }
 
 export default function BootstrapSplash() {
-  const [status, setStatus] = useState<BootstrapStatus | null>(null);
+  const { status } = useBackendStatus(true);
   const [logs, setLogs] = useState<LogLine[]>([]);
+  const [logsOpen, setLogsOpen] = useState(true);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  const poll = async () => {
+  const pollLogs = async () => {
     try {
-      const bootstrap: BootstrapStatus = await invoke('get_bootstrap_status');
-      setStatus(bootstrap);
-
-      // Fetch recent errors + some debug
       const errorLogs: string = await invoke('tail_errors', { maxLines: 80 });
       const debugLogs: string = await invoke('tail_debug', { maxLines: 30 });
 
       const allLines = [...errorLogs.split('\n'), ...debugLogs.split('\n')]
-        .filter(l => l.trim().length > 0)
+        .filter((l) => l.trim().length > 0)
         .slice(-100);
 
-      const formatted = allLines.map(line => ({
-        line,
-        timestamp: Date.now(),
-      }));
-
-      setLogs(formatted);
+      setLogs(
+        allLines.map((line) => ({
+          line,
+          timestamp: Date.now(),
+        }))
+      );
     } catch (e) {
-      console.error('Bootstrap poll failed', e);
+      console.error('Log poll failed', e);
     }
   };
 
   useEffect(() => {
-    const interval = setInterval(poll, 650);
-    poll(); // initial
+    const interval = setInterval(pollLogs, 650);
+    pollLogs();
     return () => clearInterval(interval);
   }, []);
 
@@ -95,7 +87,7 @@ export default function BootstrapSplash() {
     setIsRetrying(true);
     try {
       await invoke('stop_backend');
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, 400));
       await invoke('start_backend');
     } catch (e) {
       console.error(e);
@@ -108,8 +100,7 @@ export default function BootstrapSplash() {
     setIsRetrying(true);
     try {
       await invoke('stop_backend');
-      await new Promise(r => setTimeout(r, 800));
-      // In the future we can implement a "clean" restart here
+      await new Promise((r) => setTimeout(r, 800));
       await invoke('start_backend');
     } catch (e) {
       console.error(e);
@@ -120,29 +111,44 @@ export default function BootstrapSplash() {
 
   const handleCopyError = async () => {
     const errorText = logs
-      .filter(l => l.line.toLowerCase().includes('error') || l.line.toLowerCase().includes('failed'))
-      .map(l => l.line)
+      .filter((l) => l.line.toLowerCase().includes('error') || l.line.toLowerCase().includes('failed'))
+      .map((l) => l.line)
       .join('\n');
 
-    const full = errorText || logs.slice(-30).map(l => l.line).join('\n');
+    const full = errorText || logs.slice(-30).map((l) => l.line).join('\n');
     await navigator.clipboard.writeText(full);
     alert('Last errors copied to clipboard. Paste them when asking for help.');
   };
 
   const handleCopyFullLog = async () => {
-    const fullLog = logs.map(l => l.line).join('\n');
+    const fullLog = logs.map((l) => l.line).join('\n');
     await navigator.clipboard.writeText(fullLog);
     alert('Full recent log copied. Excellent for detailed debugging.');
   };
 
   const handleOpenLogs = async () => {
-    // For now just alert — later we can use shell to open the folder
-    alert('Diagnostic logs are at %LOCALAPPDATA%\\OmniClon2\\Logs');
+    try {
+      const logsDir = await invoke<string>('get_logs_dir');
+      await openPath(logsDir);
+    } catch (err) {
+      console.error('Open logs failed', err);
+      try {
+        await invoke('log_diagnostic_event', {
+          level: 'WARN',
+          component: 'BootstrapSplash',
+          message: 'Open logs folder failed',
+          context: String(err),
+        });
+      } catch {
+        // ignore secondary logging failure
+      }
+      alert('Could not open the logs folder automatically. Logs are located in %LOCALAPPDATA%\\OmniClon2\\Logs');
+    }
   };
 
   const currentStage = status?.stage || 'checking';
   const stageInfo = STAGE_LABELS[currentStage] || STAGE_LABELS.checking;
-  const hints = detectHints(logs.map(l => l.line));
+  const hints = detectHints(logs.map((l) => l.line));
 
   const isReady = status?.is_healthy && currentStage === 'ready';
 
@@ -155,9 +161,7 @@ export default function BootstrapSplash() {
             <h1 className="text-4xl font-semibold tracking-tight">OmniClon 2</h1>
             <p className="text-sm text-white/50 mt-1">Voice Clone Studio — Professional Edition</p>
           </div>
-          <div className="text-right text-xs text-white/40">
-            Rewrite • Phase 0
-          </div>
+          <div className="text-right text-xs text-white/40">Rewrite • Phase 0</div>
         </div>
 
         {/* Stage + Progress */}
@@ -167,21 +171,20 @@ export default function BootstrapSplash() {
             <div className="text-xl font-medium">{stageInfo.label}</div>
           </div>
           <div className="text-white/70 text-sm pl-6">{stageInfo.description}</div>
-          {status?.message && (
-            <div className="pl-6 mt-1 text-xs text-white/50">{status.message}</div>
-          )}
+          {status?.message && <div className="pl-6 mt-1 text-xs text-white/50">{status.message}</div>}
 
-          {/* Simple progress bar */}
           <div className="pl-6 mt-3">
             <div className="h-1 bg-white/10 rounded overflow-hidden">
-              <div 
-                className={`h-full transition-all duration-300 ${isReady ? 'bg-emerald-500 w-full' : 'bg-[#00b4d8] w-2/3 animate-pulse'}`} 
+              <div
+                className={`h-full transition-all duration-300 ${
+                  isReady ? 'bg-emerald-500 w-full' : 'bg-[#00b4d8] w-2/3 animate-pulse'
+                }`}
               />
             </div>
           </div>
         </div>
 
-        {/* Models Section - Visible pero NO bloqueante */}
+        {/* Models Section */}
         <ModelsSplashSection />
 
         {/* Hints */}
@@ -189,36 +192,47 @@ export default function BootstrapSplash() {
           <div className="mb-6 rounded-xl border border-red-500/30 bg-red-950/30 p-4 text-sm">
             <div className="font-medium text-red-400 mb-2">Detected issues</div>
             <ul className="list-disc pl-5 space-y-1 text-red-300/90">
-              {hints.map((h, i) => <li key={i}>{h}</li>)}
+              {hints.map((h, i) => (
+                <li key={i}>{h}</li>
+              ))}
             </ul>
           </div>
         )}
 
-        {/* Live Logs */}
+        {/* Live Logs — collapsible */}
         <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
-          <div className="px-4 py-2 text-xs uppercase tracking-widest text-white/40 border-b border-white/10 flex justify-between">
+          <button
+            onClick={() => setLogsOpen((v) => !v)}
+            className="w-full px-4 py-2 text-xs uppercase tracking-widest text-white/40 border-b border-white/10 flex justify-between items-center hover:bg-white/5 transition"
+          >
             <span>Diagnostic Logs</span>
-            <span className="text-white/30">Last 100 lines</span>
-          </div>
-          <div className="h-[260px] overflow-auto p-3 font-mono text-[12px] leading-tight bg-black/40">
-            {logs.length === 0 ? (
-              <div className="text-white/30">Waiting for output...</div>
-            ) : (
-              logs.slice(-100).map((log, idx) => (
-                <div key={idx} className="whitespace-pre-wrap break-all text-white/80">
-                  {log.line}
-                </div>
-              ))
-            )}
-          </div>
+            <span className="flex items-center gap-2 text-white/30">
+              Last 100 lines
+              <span className="text-[10px]">{logsOpen ? '▲' : '▼'}</span>
+            </span>
+          </button>
+
+          {logsOpen && (
+            <div className="h-[260px] overflow-auto p-3 font-mono text-[12px] leading-tight bg-black/40">
+              {logs.length === 0 ? (
+                <div className="text-white/30">Waiting for output...</div>
+              ) : (
+                logs.slice(-100).map((log, idx) => (
+                  <div key={idx} className="whitespace-pre-wrap break-all text-white/80">
+                    {log.line}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3 mt-6">
+        <div className="flex flex-wrap gap-3 mt-6">
           <button
             onClick={handleRetry}
             disabled={isRetrying}
-            className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
+            className="flex-1 min-w-[120px] rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
           >
             {isRetrying ? 'Restarting...' : 'Retry'}
           </button>
@@ -226,28 +240,28 @@ export default function BootstrapSplash() {
           <button
             onClick={handleForceRestart}
             disabled={isRetrying}
-            className="flex-1 rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
+            className="flex-1 min-w-[120px] rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
           >
             Force Restart
           </button>
 
           <button
             onClick={handleCopyError}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 text-sm font-medium transition"
+            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
           >
             Copy Error
           </button>
 
           <button
             onClick={handleCopyFullLog}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 text-sm font-medium transition"
+            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
           >
             Copy Full Log
           </button>
 
           <button
             onClick={handleOpenLogs}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 text-sm font-medium transition"
+            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
           >
             Open Logs
           </button>

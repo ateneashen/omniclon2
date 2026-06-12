@@ -106,7 +106,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setLastGenerated: (audioBase64: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedInfo: info }),
 
   setMarkA: (time) => {
-    const { region, duration } = get();
+    const { region } = get();
     const newStart = Math.max(0, Math.min(time, region.end - 0.01));
     set({ region: { ...region, start: newStart } });
   },

@@ -2,18 +2,16 @@ import { useEffect } from 'react';
 import { useEditorStore } from '../stores/editorStore';
 
 export function useKeyboardShortcuts() {
-  const { 
-    setCurrentTime, 
-    duration, 
-    currentTime, 
-    region, 
-    setRegion, 
-    isPlaying, 
-    setPlaying, 
-    isLooping, 
+  const {
+    setCurrentTime,
+    duration,
+    currentTime,
+    setRegion,
+    isPlaying,
+    setPlaying,
     toggleLoop,
     setMarkA,
-    setMarkB 
+    setMarkB,
   } = useEditorStore();
 
   useEffect(() => {

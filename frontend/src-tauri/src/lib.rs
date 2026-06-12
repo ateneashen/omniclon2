@@ -4,8 +4,6 @@ mod backend;
 mod commands;
 mod diagnostics;
 
-use std::sync::Mutex;
-
 use tauri::Manager;
 
 use crate::backend::{BackendState, BACKEND_PORT};
@@ -45,6 +43,12 @@ fn log_diagnostic_event(
         &message,
         context.as_deref(),
     );
+}
+
+/// Returns the absolute path to the dedicated diagnostic logs folder.
+#[tauri::command]
+fn get_logs_dir(app: tauri::AppHandle) -> String {
+    diagnostics::logs_dir(&app).to_string_lossy().to_string()
 }
 
 /// Try to start the Python backend (if not already running).
@@ -151,6 +155,7 @@ pub fn run() {
             tail_errors,
             tail_debug,
             log_diagnostic_event,
+            get_logs_dir,
             start_backend,
             stop_backend,
             backend_health,

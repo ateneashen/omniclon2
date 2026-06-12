@@ -4,6 +4,10 @@ cd /d "%~dp0"
 
 title OmniClon 2 - Launcher (User Friendly)
 
+:: Ensure loopback traffic never goes through an HTTP proxy.
+set NO_PROXY=127.0.0.1,localhost
+set no_proxy=127.0.0.1,localhost
+
 :: Quick prerequisite check (non-blocking)
 where node >nul 2>&1 || echo [AVISO] node/npm no encontrado en PATH. Instala Node.js para el frontend.
 where uv >nul 2>&1 || echo [AVISO] uv no encontrado. Se recomienda uv para el backend Python.
@@ -75,6 +79,8 @@ echo [MODO DESARROLLO]
 echo.
 echo Configurando entorno autonomo de OmniClon 2...
 
+set OMNICLON2_DATA_DIR=%CD%\data
+
 echo Cambiando a frontend...
 cd frontend
 
@@ -93,6 +99,7 @@ goto menu
 echo.
 echo [COMPILACION RELEASE - PRODUCCION]
 echo.
+set OMNICLON2_DATA_DIR=%CD%\data
 cd frontend
 echo Compilando version optimizada... (esto puede tardar varios minutos)
 npm run tauri build
@@ -107,6 +114,7 @@ goto menu
 echo.
 echo [COMPILACION DEBUG]
 echo.
+set OMNICLON2_DATA_DIR=%CD%\data
 cd frontend
 npm run tauri build -- --debug
 echo.

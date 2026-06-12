@@ -200,6 +200,8 @@ pub fn spawn_backend(
     let mut cmd = Command::new(&python);
     cmd.env("PYTHONUNBUFFERED", "1");
     cmd.env("OMNICLON2_DATA_DIR", resolve_data_dir(app));
+    cmd.env("NO_PROXY", "127.0.0.1,localhost");
+    cmd.env("no_proxy", "127.0.0.1,localhost");
 
     // Legacy fallback removed: OmniClon 2 now ships the omnivoice inference code
     // inside backend/omnivoice and the k2-fsa weights inside data/models.
@@ -325,6 +327,14 @@ pub fn is_backend_healthy() -> bool {
 /// 2. Portable layout next to the executable (<exe_dir>\..\data or <exe_dir>\data).
 /// 3. Tauri app_local_data_dir as a safe fallback.
 fn resolve_data_dir(app: &tauri::AppHandle) -> String {
+    // Highest priority: explicit data dir from the environment (launcher / user override)
+    if let Ok(env_dir) = std::env::var("OMNICLON2_DATA_DIR") {
+        let p = PathBuf::from(&env_dir);
+        if p.exists() {
+            return p.to_string_lossy().to_string();
+        }
+    }
+
     // Development / project-root autocontained data
     let dev = PathBuf::from(r"C:\AI\OmniClon2\data");
     if dev.exists() {

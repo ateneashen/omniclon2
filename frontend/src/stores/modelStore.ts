@@ -107,8 +107,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      const updatedConfig = await invoke<ModelConfig>('switch_model_mode', { mode });
-      
+      await invoke<ModelConfig>('switch_model_mode', { mode });
+
       // Refrescar el estado completo después del cambio
       await get().fetchStatus();
 

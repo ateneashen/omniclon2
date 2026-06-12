@@ -5,6 +5,10 @@ const PADDING = 48;
 const WAVE_HEIGHT = 68;
 const RULER_HEIGHT = 26;
 
+function formatSeconds(seconds: number): string {
+  return `${seconds.toFixed(2)}s`;
+}
+
 export default function Timeline() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -15,11 +19,9 @@ export default function Timeline() {
     currentTime,
     region,
     zoom,
-    isPlaying,
-    isLooping,
     setCurrentTime,
     setRegion,
-    setPlaying,
+    setZoom,
   } = useEditorStore();
 
   const [isDragging, setIsDragging] = useState<'playhead' | 'a' | 'b' | null>(null);
@@ -28,7 +30,10 @@ export default function Timeline() {
   const totalWidth = duration * pixelsPerSecond + PADDING * 2;
 
   const timeToX = useCallback((t: number) => PADDING + t * pixelsPerSecond, [pixelsPerSecond]);
-  const xToTime = useCallback((x: number) => Math.max(0, Math.min(duration, (x - PADDING) / pixelsPerSecond)), [pixelsPerSecond, duration]);
+  const xToTime = useCallback(
+    (x: number) => Math.max(0, Math.min(duration, (x - PADDING) / pixelsPerSecond)),
+    [pixelsPerSecond, duration]
+  );
 
   // Draw timeline
   useEffect(() => {
@@ -71,7 +76,7 @@ export default function Timeline() {
     const step = zoom > 2 ? 0.5 : zoom > 0.5 ? 1 : 5;
     for (let t = 0; t <= duration; t += step) {
       const x = timeToX(t);
-      const isMajor = t % (step * 2) === 0;
+      const isMajor = Math.abs(t % (step * 2)) < 0.001;
 
       ctx.strokeStyle = isMajor ? '#444' : '#2a2a2a';
       ctx.beginPath();
@@ -89,24 +94,32 @@ export default function Timeline() {
     ctx.fillStyle = '#111';
     ctx.fillRect(PADDING, waveY, duration * pixelsPerSecond, WAVE_HEIGHT);
 
-    // Draw waveform
-    if (waveform && waveform.samples.length > 0) {
+    // Draw waveform with min/max filled rects
+    if (waveform && waveform.samples.length > 0 && duration > 0) {
       const samples = waveform.samples;
-      const samplesPerPixel = Math.max(1, Math.floor(samples.length / (duration * pixelsPerSecond)));
+      const totalPixels = Math.max(1, Math.floor(duration * pixelsPerSecond));
+      const samplesPerPixel = Math.max(1, Math.floor(samples.length / totalPixels));
 
-      ctx.strokeStyle = '#555';
-      ctx.lineWidth = 1;
+      ctx.fillStyle = '#555';
 
-      for (let px = 0; px < duration * pixelsPerSecond; px++) {
-        const idx = Math.floor(px * samplesPerPixel);
-        const sample = samples[Math.min(idx, samples.length - 1)] || 0;
-        const h = Math.max(1, sample * WAVE_HEIGHT * 0.95);
+      for (let px = 0; px < totalPixels; px++) {
+        const startIdx = px * samplesPerPixel;
+        const endIdx = Math.min(startIdx + samplesPerPixel, samples.length);
+
+        let minSample = 0;
+        let maxSample = 0;
+        for (let i = startIdx; i < endIdx; i++) {
+          const s = samples[i] || 0;
+          if (s < minSample) minSample = s;
+          if (s > maxSample) maxSample = s;
+        }
+
+        const centerY = waveY + WAVE_HEIGHT / 2;
+        const minY = centerY - Math.max(1, Math.abs(minSample) * (WAVE_HEIGHT / 2) * 0.95);
+        const maxY = centerY + Math.max(1, Math.abs(maxSample) * (WAVE_HEIGHT / 2) * 0.95);
 
         const x = PADDING + px;
-        ctx.beginPath();
-        ctx.moveTo(x, waveY + WAVE_HEIGHT / 2 - h / 2);
-        ctx.lineTo(x, waveY + WAVE_HEIGHT / 2 + h / 2);
-        ctx.stroke();
+        ctx.fillRect(x, minY, 1, maxY - minY);
       }
 
       // A-B region highlight
@@ -127,6 +140,19 @@ export default function Timeline() {
         ctx.fillStyle = '#4ecdc4';
         ctx.fillRect(bX - 2, waveY, 3, WAVE_HEIGHT);
         ctx.fillText('B', bX - 14, waveY + 14);
+
+        // A/B duration label
+        const durationText = formatSeconds(region.end - region.start);
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px Inter, system-ui';
+        ctx.textAlign = 'center';
+        const labelX = (aX + bX) / 2;
+        const labelY = waveY + WAVE_HEIGHT - 6;
+        const textWidth = ctx.measureText(durationText).width;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+        ctx.fillRect(labelX - textWidth / 2 - 3, labelY - 10, textWidth + 6, 14);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(durationText, labelX, labelY);
       }
     }
 
@@ -148,6 +174,23 @@ export default function Timeline() {
     ctx.closePath();
     ctx.fill();
   }, [waveform, duration, currentTime, region, zoom, pixelsPerSecond, timeToX]);
+
+  // Auto-scroll to keep playhead visible
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || isDragging) return;
+
+    const playX = timeToX(currentTime);
+    const padding = 48;
+    const left = container.scrollLeft;
+    const right = left + container.clientWidth;
+
+    if (playX < left + padding) {
+      container.scrollLeft = Math.max(0, playX - padding);
+    } else if (playX > right - padding) {
+      container.scrollLeft = playX - container.clientWidth + padding;
+    }
+  }, [currentTime, timeToX, isDragging]);
 
   // Mouse handling for A/B and playhead
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -190,19 +233,53 @@ export default function Timeline() {
 
   const handleMouseUp = () => setIsDragging(null);
 
+  const handleZoomIn = () => setZoom(zoom * 1.25);
+  const handleZoomOut = () => setZoom(zoom / 1.25);
+  const handleZoomReset = () => setZoom(1);
+
   return (
-    <div
-      ref={containerRef}
-      className="h-36 bg-[#0a0a0a] border-t border-white/10 overflow-x-auto select-none"
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
-    >
-      <canvas
-        ref={canvasRef}
-        onMouseDown={handleMouseDown}
-        className="cursor-col-resize"
-      />
+    <div className="border-t border-white/10 bg-[#111] shrink-0">
+      <div className="flex items-center justify-between px-3 py-1 text-xs border-b border-white/10">
+        <div className="text-white/50">
+          {region.end > region.start ? (
+            <>A/B: {region.start.toFixed(2)}s — {region.end.toFixed(2)}s ({(region.end - region.start).toFixed(2)}s)</>
+          ) : (
+            <>No A/B region selected</>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleZoomOut}
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            title="Zoom out"
+          >
+            −
+          </button>
+          <button
+            onClick={handleZoomReset}
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            title="Reset zoom"
+          >
+            {zoom.toFixed(1)}x
+          </button>
+          <button
+            onClick={handleZoomIn}
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            title="Zoom in"
+          >
+            +
+          </button>
+        </div>
+      </div>
+      <div
+        ref={containerRef}
+        className="h-36 bg-[#0a0a0a] overflow-x-auto select-none"
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
+        <canvas ref={canvasRef} onMouseDown={handleMouseDown} className="cursor-col-resize" />
+      </div>
     </div>
   );
 }

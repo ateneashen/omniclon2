@@ -69,6 +69,7 @@ class VoiceCloningService:
         self.model_path: Optional[Path] = None
         self._k2fsa_loaded = False
         self._k2fsa_files_verified = False
+        self.device: str = "cuda" if torch.cuda.is_available() else "cpu"
         self.real_omnivoice = None
         self.omnivoice_config: Optional[dict] = None
 
@@ -217,6 +218,7 @@ class VoiceCloningService:
             from omnivoice.models.omnivoice import OmniVoice
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device = device
             dtype = torch.float16 if device == "cuda" else torch.float32
 
             print(f"[VoiceCloningService] Loading real OmniVoice with device={device}, dtype={dtype}...")

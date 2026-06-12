@@ -199,6 +199,7 @@ async def get_voice_status():
         "primary_cloning_model": getattr(svc, "primary_cloning_model", None),
         "k2fsa_loaded": getattr(svc, "_k2fsa_loaded", False),
         "k2fsa_files_verified": getattr(svc, "_k2fsa_files_verified", False),
+        "device": getattr(svc, "device", "cpu"),
         "model_path": str(getattr(svc, "model_path", "")) if getattr(svc, "model_path", None) else None,
         "available_models": list(getattr(svc, "available_models", {}).keys()),
         "cloning_model": getattr(svc, "cloning_model", None),

@@ -111,6 +111,8 @@ tmp/
 # --- Diagnostic / AI debugging artifacts (we usually want these local only) ---
 *.diagnostic-bundle.zip
 crash-*.log
+screenshots/
+scripts/cdp_e2e_result.json
 
 # --- Tauri bundle outputs ---
 src-tauri/target/release/bundle/

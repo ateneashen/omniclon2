@@ -26,7 +26,7 @@ pub async fn import_media(app: AppHandle, path: String) -> Result<serde_json::Va
     let mut duration = 10.0f64;
     let mut width = 1920i64;
     let mut height = 1080i64;
-    let mut fps = 30.0f64;
+    let fps = 30.0f64;
 
     let shell = app.shell();
     let ffprobe_output = shell.command("ffprobe")
@@ -183,7 +183,7 @@ fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32
         return Err("Invalid WAV".into());
     }
 
-    let sample_rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
+    let _sample_rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
     let bits = u16::from_le_bytes([header[34], header[35]]);
 
     if bits != 16 {
@@ -191,8 +191,7 @@ fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32
     }
 
     // Find data chunk
-    let mut data_size = 0u32;
-    loop {
+    let data_size = loop {
         let mut chunk_id = [0u8; 4];
         file.read_exact(&mut chunk_id).map_err(|e| e.to_string())?;
         let mut size = [0u8; 4];
@@ -200,12 +199,11 @@ fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32
         let chunk_size = u32::from_le_bytes(size);
 
         if &chunk_id == b"data" {
-            data_size = chunk_size;
-            break;
+            break chunk_size;
         } else {
             file.seek(SeekFrom::Current(chunk_size as i64)).ok();
         }
-    }
+    };
 
     let num_samples = (data_size / 2) as usize;
     let samples_to_read = num_samples.min(10_000_000);
