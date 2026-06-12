@@ -1,6 +1,7 @@
 use crate::diagnostics;
 use std::path::Path;
 use tauri::{command, AppHandle, Manager};
+use tauri_plugin_shell::ShellExt;
 use uuid::Uuid;
 
 /// Simple media import that returns basic metadata.
@@ -21,15 +22,41 @@ pub async fn import_media(app: AppHandle, path: String) -> Result<serde_json::Va
         .unwrap_or("unknown")
         .to_string();
 
-    // TODO: Real ffprobe call for accurate duration, resolution, fps
+    // Try to get real metadata with ffprobe (if available in PATH)
+    let mut duration = 10.0f64;
+    let mut width = 1920i64;
+    let mut height = 1080i64;
+    let mut fps = 30.0f64;
+
+    let shell = app.shell();
+    let ffprobe_output = shell.command("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration:stream=width,height,r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path])
+        .output()
+        .await;
+
+    if let Ok(output) = ffprobe_output {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = stdout.trim().lines().collect();
+            if lines.len() >= 1 {
+                if let Ok(d) = lines[0].parse::<f64>() { duration = d; }
+            }
+            if lines.len() >= 3 {
+                if let Ok(w) = lines[1].parse::<i64>() { width = w; }
+                if let Ok(h) = lines[2].parse::<i64>() { height = h; }
+            }
+            // Note: r_frame_rate is like "30/1", parsing fps can be added later
+        }
+    }
+
     Ok(serde_json::json!({
         "id": id,
         "name": name,
         "path": path,
-        "duration": 10.0,
-        "width": 1920,
-        "height": 1080,
-        "fps": 30.0
+        "duration": duration,
+        "width": width,
+        "height": height,
+        "fps": fps
     }))
 }
 

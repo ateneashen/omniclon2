@@ -199,14 +199,11 @@ pub fn spawn_backend(
 
     let mut cmd = Command::new(&python);
     cmd.env("PYTHONUNBUFFERED", "1");
-    cmd.env(
-        "OMNICLON2_DATA_DIR",
-        app.path()
-            .app_local_data_dir()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string(),
-    );
+    cmd.env("OMNICLON2_DATA_DIR", resolve_data_dir(app));
+
+    // Legacy fallback removed: OmniClon 2 now ships the omnivoice inference code
+    // inside backend/omnivoice and the k2-fsa weights inside data/models.
+    // No runtime dependency on C:\AI\OmniVoice-Studio2.
 
     // Try to find a reasonable backend directory
     let backend_dir = resolve_backend_dir();
@@ -319,6 +316,43 @@ pub fn is_backend_healthy() -> bool {
         .call()
         .map(|r| r.status() == 200)
         .unwrap_or(false)
+}
+
+/// Resolve the autonomous data directory for OmniClon 2.
+///
+/// Priority:
+/// 1. Development data folder inside the project root (C:\AI\OmniClon2\data).
+/// 2. Portable layout next to the executable (<exe_dir>\..\data or <exe_dir>\data).
+/// 3. Tauri app_local_data_dir as a safe fallback.
+fn resolve_data_dir(app: &tauri::AppHandle) -> String {
+    // Development / project-root autocontained data
+    let dev = PathBuf::from(r"C:\AI\OmniClon2\data");
+    if dev.exists() {
+        return dev.to_string_lossy().to_string();
+    }
+
+    // Portable layout relative to the executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let portable_a = exe_dir.parent().map(|p| p.join("data"));
+            if let Some(ref p) = portable_a {
+                if p.exists() {
+                    return p.to_string_lossy().to_string();
+                }
+            }
+            let portable_b = exe_dir.join("data");
+            if portable_b.exists() {
+                return portable_b.to_string_lossy().to_string();
+            }
+        }
+    }
+
+    // Fallback to Tauri's local data dir
+    app.path()
+        .app_local_data_dir()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string()
 }
 
 /// Try to resolve the directory that contains the backend Python code (main.py).

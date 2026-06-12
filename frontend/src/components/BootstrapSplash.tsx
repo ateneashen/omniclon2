@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-shell';
+import ModelsSplashSection from './splash/ModelsSplashSection';
 
 interface BootstrapStatus {
   backend_status: any;
@@ -180,6 +180,9 @@ export default function BootstrapSplash() {
             </div>
           </div>
         </div>
+
+        {/* Models Section - Visible pero NO bloqueante */}
+        <ModelsSplashSection />
 
         {/* Hints */}
         {currentStage === 'failed' && hints.length > 0 && (

@@ -72,6 +72,11 @@ src-tauri/tauri.conf.json.bak
 # --- ML / Models (we do NOT want to accidentally commit large models) ---
 models/
 hf_cache/
+data/models/
+data/voices/
+data/generations/
+data/config/
+data/temp_*.wav
 *.onnx
 *.safetensors
 *.bin
@@ -114,3 +119,4 @@ src-tauri/target/release/bundle/
 !logs/.gitkeep
 !backend/.gitkeep
 !frontend/.gitkeep
+!data/.gitkeep

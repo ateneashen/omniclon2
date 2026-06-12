@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Region, MediaClip, WaveformData } from '../types';
+import { Region, MediaClip, WaveformData, VoiceReference } from '../types';
 
 interface EditorState {
   // Current project
@@ -17,6 +17,12 @@ interface EditorState {
   // Waveform
   waveform: WaveformData | null;
 
+  // Current A/B Voice Reference (extracted for cloning)
+  currentVoiceReference: VoiceReference | null;
+  isGenerating: boolean;
+  lastGeneratedAudio: string | null; // base64 for the last generation result
+  lastGeneratedInfo: string | null; // e.g. model used, text
+
   // Actions
   setActiveClip: (id: string | null) => void;
   addClip: (clip: MediaClip) => void;
@@ -29,6 +35,11 @@ interface EditorState {
   toggleLoop: () => void;
   setPlaying: (playing: boolean) => void;
   setWaveform: (waveform: WaveformData | null) => void;
+
+  setCurrentVoiceReference: (ref: VoiceReference | null) => void;
+
+  setIsGenerating: (generating: boolean) => void;
+  setLastGenerated: (audioBase64: string | null, info: string | null) => void;
 
   // A/B helpers
   setMarkA: (time: number) => void;
@@ -47,6 +58,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isLooping: false,
   isPlaying: false,
   waveform: null,
+  currentVoiceReference: null,
+  isGenerating: false,
+  lastGeneratedAudio: null,
+  lastGeneratedInfo: null,
 
   setActiveClip: (id) => set({ activeClipId: id }),
   
@@ -83,6 +98,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setPlaying: (playing) => set({ isPlaying: playing }),
   
   setWaveform: (waveform) => set({ waveform }),
+
+  setCurrentVoiceReference: (ref) => set({ currentVoiceReference: ref }),
+
+  setIsGenerating: (generating: boolean) => set({ isGenerating: generating }),
+
+  setLastGenerated: (audioBase64: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedInfo: info }),
 
   setMarkA: (time) => {
     const { region, duration } = get();

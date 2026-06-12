@@ -98,12 +98,53 @@ fn restart_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>)
     backend::restart_backend(&app, &state)
 }
 
+/// Proxy to Python backend /generate (voice cloning from A/B ref).
+/// This makes the "Generate Cloned Voice" button in the UI functional.
+#[tauri::command]
+fn generate(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/generate", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Voice", "generate command invoked, proxying to backend", None);
+
+    let resp = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(120))
+        .set("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /generate: {}", e);
+            diagnostics::log_error(&app, "Voice", "generate proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
+/// Proxy to Python backend /voice/status for cloning service readiness (primary model, k2-fsa prep state).
+#[tauri::command]
+fn get_voice_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/voice/status", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Voice", "get_voice_status invoked, proxying to backend", None);
+
+    let resp = ureq::get(&url)
+        .timeout(std::time::Duration::from_millis(800))
+        .call()
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /voice/status: {}", e);
+            diagnostics::log_error(&app, "Voice", "voice status proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(BackendState::new())
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -116,9 +157,17 @@ pub fn run() {
             get_backend_status,
             get_bootstrap_status,
             restart_backend,
+            generate,
+            get_voice_status,
             commands::media::import_media,
             commands::media::extract_waveform,
-            commands::media::extract_segment
+            commands::media::extract_segment,
+            // Model Management (Fase B1)
+            commands::models::get_model_status,
+            commands::models::get_model_config,
+            commands::models::switch_model_mode,
+            commands::models::get_model_catalog,
+            commands::models::copy_models_to_dedicated
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)
