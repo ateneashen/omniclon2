@@ -168,63 +168,45 @@ pub async fn extract_segment(
     Ok(output_path.to_string_lossy().to_string())
 }
 
-// --- Internal WAV parser (simplified but functional) ---
+// --- WAV parser using the robust `hound` crate ---
 fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32>, String> {
-    use std::fs::File;
-    use std::io::{Read, Seek, SeekFrom};
+    let mut reader = hound::WavReader::open(path).map_err(|e| format!("WAV open error: {}", e))?;
+    let spec = reader.spec();
 
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    // Hound normalizes samples to f32 in [-1, 1]. We use absolute amplitude.
+    let samples: Vec<f32> = reader
+        .samples::<f32>()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("WAV sample read error: {}", e))?
+        .into_iter()
+        .map(|s| s.abs())
+        .collect();
 
-    // Very simplified WAV reader (assumes standard 16-bit mono PCM)
-    let mut header = [0u8; 44];
-    file.read_exact(&mut header).map_err(|e| e.to_string())?;
-
-    if &header[0..4] != b"RIFF" || &header[8..12] != b"WAVE" {
-        return Err("Invalid WAV".into());
+    if samples.is_empty() {
+        return Ok(vec![0.0; target_points]);
     }
 
-    let _sample_rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
-    let bits = u16::from_le_bytes([header[34], header[35]]);
-
-    if bits != 16 {
-        return Err("Only 16-bit supported for now".into());
-    }
-
-    // Find data chunk
-    let data_size = loop {
-        let mut chunk_id = [0u8; 4];
-        file.read_exact(&mut chunk_id).map_err(|e| e.to_string())?;
-        let mut size = [0u8; 4];
-        file.read_exact(&mut size).map_err(|e| e.to_string())?;
-        let chunk_size = u32::from_le_bytes(size);
-
-        if &chunk_id == b"data" {
-            break chunk_size;
-        } else {
-            file.seek(SeekFrom::Current(chunk_size as i64)).ok();
-        }
+    // Average channels if stereo (interleaved samples)
+    let samples = if spec.channels == 2 {
+        samples
+            .chunks_exact(2)
+            .map(|c| (c[0] + c[1]) / 2.0)
+            .collect::<Vec<_>>()
+    } else {
+        samples
     };
 
-    let num_samples = (data_size / 2) as usize;
-    let samples_to_read = num_samples.min(10_000_000);
-    let mut raw = vec![0u8; samples_to_read * 2];
-    file.read_exact(&mut raw).map_err(|e| e.to_string())?;
-
-    let mut samples = Vec::with_capacity(samples_to_read);
-    for i in 0..samples_to_read {
-        let val = i16::from_le_bytes([raw[i*2], raw[i*2+1]]) as f32 / 32768.0;
-        samples.push(val.abs());
-    }
-
-    // Downsample to target_points
-    let mut downsampled = vec![0f32; target_points];
-    let bucket_size = samples.len() / target_points;
+    // Downsample to target_points by taking max amplitude per bucket
+    let mut downsampled = vec![0.0f32; target_points];
+    let bucket_size = (samples.len() as f64 / target_points as f64).max(1.0) as usize;
 
     for i in 0..target_points {
-        let start = i * bucket_size;
+        let start = (i * bucket_size).min(samples.len());
         let end = ((i + 1) * bucket_size).min(samples.len());
-        let max = samples[start..end].iter().fold(0f32, |a, &b| a.max(b));
-        downsampled[i] = max;
+        if start < end {
+            let max = samples[start..end].iter().fold(0.0f32, |a, &b| a.max(b));
+            downsampled[i] = max;
+        }
     }
 
     Ok(downsampled)
