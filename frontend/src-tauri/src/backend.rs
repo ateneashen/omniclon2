@@ -341,9 +341,16 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> String {
         return dev.to_string_lossy().to_string();
     }
 
-    // Portable layout relative to the executable
+    // Portable / bundled layout relative to the executable
     if let Ok(exe) = std::env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
+            // Bundled resources (Tauri msi/nsis copies resources here)
+            let bundled_resources = exe_dir.join("resources").join("data");
+            if bundled_resources.exists() {
+                return bundled_resources.to_string_lossy().to_string();
+            }
+
+            // Portable layout: data folder next to the exe or one level up
             let portable_a = exe_dir.parent().map(|p| p.join("data"));
             if let Some(ref p) = portable_a {
                 if p.exists() {

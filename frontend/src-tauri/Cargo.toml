@@ -1,6 +1,6 @@
 [package]
 name = "omniclon2"
-version = "0.1.0-rewrite"
+version = "0.1.0"
 description = "OmniClon 2 — Professional Voice Clone Studio (Rewrite)"
 authors = ["OmniClon Team"]
 edition = "2021"
