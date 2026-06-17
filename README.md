@@ -41,9 +41,14 @@ See `docs/ARCHITECTURE.md` and the ADRs in `docs/ADR/`.
 
 ## Model Strategy
 
-- **Default**: Read from existing OmniVoice models folder (saves disk space, reuses catalog)
-- **Autonomy path**: One-click "Copy selected models to dedicated OmniClon folder" + toggle
-- Full support for downloading new models, custom HF repos, and validation
+- **Autonomous by default**: OmniClon 2 keeps its own model weights inside `data/models/`. The primary voice-cloning engine (`k2-fsa_OmniVoice`) is loaded from `data/models/k2-fsa_OmniVoice`, with no runtime dependency on `C:\AI\OmniVoice-Studio2`, `C:\AI\OmniVoice-Studio`, or `C:\AI\OmniVoice`.
+- **Shared mode (legacy)**: Optionally read from an existing OmniVoice models folder to save disk space. This is no longer the default and must be configured manually.
+- **Autonomy path**: One-click "Copy selected models to dedicated OmniClon folder" + toggle.
+- Full support for downloading new models, custom HF repos, and validation.
+
+## Hardware Optimization
+
+The backend automatically detects CUDA and loads the model on the GPU with `float16` when available. It was tuned and validated on the machine's RTX 3090 + CUDA 12.4.
 
 ## Development & Debugging
 

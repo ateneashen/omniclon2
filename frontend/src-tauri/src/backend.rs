@@ -195,6 +195,20 @@ pub fn spawn_backend(
 
     state.set_status(BackendStatus::Starting);
 
+    // If a backend is already healthy on our port (e.g. leftover from a previous
+    // run or started manually), just adopt it instead of failing to re-bind.
+    if is_backend_healthy() {
+        diagnostics::log_diagnostic(
+            app,
+            "INFO",
+            "Backend",
+            &format!("Backend already healthy on port {}; adopting existing process.", BACKEND_PORT),
+            None,
+        );
+        state.set_status(BackendStatus::Running { pid: 0 });
+        return Ok(());
+    }
+
     let python = find_python_interpreter(app)?;
 
     let mut cmd = Command::new(&python);

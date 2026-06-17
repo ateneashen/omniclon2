@@ -123,6 +123,25 @@ fn generate(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_j
     Ok(json)
 }
 
+/// Proxy to Python backend /voice/generate_options to populate the tuning UI.
+#[tauri::command]
+fn get_generate_options(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/voice/generate_options", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Voice", "get_generate_options invoked, proxying to backend", None);
+
+    let resp = ureq::get(&url)
+        .timeout(std::time::Duration::from_millis(800))
+        .call()
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /voice/generate_options: {}", e);
+            diagnostics::log_error(&app, "Voice", "generate options proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
 /// Proxy to Python backend /voice/status for cloning service readiness (primary model, k2-fsa prep state).
 #[tauri::command]
 fn get_voice_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -144,6 +163,16 @@ fn get_voice_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Ensure loopback traffic never goes through a system HTTP proxy.
+    // This prevents ureq (and any child process) from trying to proxy
+    // localhost:17493 traffic, which breaks the backend connection on
+    // machines with HTTP_PROXY set.
+    for (key, value) in [("NO_PROXY", "127.0.0.1,localhost"), ("no_proxy", "127.0.0.1,localhost")] {
+        if std::env::var_os(key).is_none() {
+            std::env::set_var(key, value);
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -163,6 +192,7 @@ pub fn run() {
             get_bootstrap_status,
             restart_backend,
             generate,
+            get_generate_options,
             get_voice_status,
             commands::media::import_media,
             commands::media::extract_waveform,

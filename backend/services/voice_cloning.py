@@ -46,6 +46,17 @@ class GenerationRequest(BaseModel):
     emotion: Optional[str] = None
     model_repo: Optional[str] = None
 
+    # OmniVoice generation tuning options (the "tags" the user asked for)
+    speed: float = 1.0
+    num_step: int = 24
+    guidance_scale: float = 2.0
+    denoise: bool = True
+    postprocess_output: bool = True
+    language: Optional[str] = None          # "es", "en", etc. Auto-detected if None
+    instruct: Optional[str] = None          # Voice-design style instruction
+    duration: Optional[float] = None        # Fixed output duration in seconds
+    t_shift: Optional[float] = None         # Time-step shift (advanced)
+
 
 class GenerationResult(BaseModel):
     success: bool
@@ -89,11 +100,8 @@ class VoiceCloningService:
             except Exception as e:
                 print(f"[VoiceCloningService] Could not read model manager root: {e}")
 
-        # Temporary fallback to legacy OmniVoice-Studio2 location for migration
-        legacy_path = Path(r"C:\AI\OmniVoice-Studio2\models\k2-fsa_OmniVoice")
-        if legacy_path.exists():
-            candidates.append(legacy_path)
-
+        # NOTE: OmniClon 2 is intentionally autonomous. We do NOT fall back to
+        # C:\AI\OmniVoice-Studio2 or similar external installs at runtime.
         chosen = None
         for cand in candidates:
             if cand.exists() and (cand / "config.json").exists() and (cand / "model.safetensors").exists():
@@ -139,10 +147,12 @@ class VoiceCloningService:
                 error_message="La referencia de audio no existe en disco.",
             )
 
-        output_dir = Path("generated")
-        output_dir.mkdir(exist_ok=True)
+        output_dir = PROJECT_ROOT / "data" / "generations"
+        output_dir.mkdir(parents=True, exist_ok=True)
         timestamp = int(time.time())
-        output_path = output_dir / f"generated_{timestamp}.wav"
+        safe_text = "".join(c if c.isalnum() or c in " _-" else "_" for c in request.text[:30]).strip()
+        output_name = f"generated_{timestamp}_{safe_text}.wav" if safe_text else f"generated_{timestamp}.wav"
+        output_path = output_dir / output_name
 
         # 1. Try real k2-fsa_OmniVoice inference first
         if self._k2fsa_loaded and self.real_omnivoice is not None:
@@ -277,23 +287,31 @@ class VoiceCloningService:
         try:
             import soundfile as sf
 
-            lang = self._detect_language(request.text)
+            lang = request.language if request.language else self._detect_language(request.text)
 
             # PC-optimized generation settings:
             # - ref_text="" avoids downloading Whisper from HF Hub (fully autonomous).
             # - num_step=24 is a good speed/quality trade-off on RTX 3090.
             # - language hint improves prosody for Spanish content.
-            audio_tensors = self.real_omnivoice.generate(
-                text=request.text,
-                ref_audio=request.reference_audio_path,
-                ref_text="",
-                language=lang,
-                num_step=24,
-                guidance_scale=2.0,
-                speed=1.0,
-                denoise=True,
-                postprocess_output=True,
-            )
+            generate_kwargs = {
+                "text": request.text,
+                "ref_audio": request.reference_audio_path,
+                "ref_text": "",
+                "language": lang,
+                "num_step": request.num_step,
+                "guidance_scale": request.guidance_scale,
+                "speed": request.speed,
+                "denoise": request.denoise,
+                "postprocess_output": request.postprocess_output,
+            }
+            if request.instruct:
+                generate_kwargs["instruct"] = request.instruct
+            if request.duration is not None and request.duration > 0:
+                generate_kwargs["duration"] = request.duration
+            if request.t_shift is not None:
+                generate_kwargs["t_shift"] = request.t_shift
+
+            audio_tensors = self.real_omnivoice.generate(**generate_kwargs)
 
             # generate returns list of (1, T) tensors
             if isinstance(audio_tensors, (list, tuple)):

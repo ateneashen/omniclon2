@@ -26,26 +26,41 @@ pub async fn import_media(app: AppHandle, path: String) -> Result<serde_json::Va
     let mut duration = 10.0f64;
     let mut width = 1920i64;
     let mut height = 1080i64;
-    let fps = 30.0f64;
+    let mut fps = 30.0f64;
 
     let shell = app.shell();
     let ffprobe_output = shell.command("ffprobe")
-        .args(["-v", "error", "-show_entries", "format=duration:stream=width,height,r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1", &path])
+        .args(["-v", "error", "-show_entries", "format=duration:stream=width,height,r_frame_rate", "-of", "default=noprint_wrappers=1", &path])
         .output()
         .await;
 
     if let Ok(output) = ffprobe_output {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let lines: Vec<&str> = stdout.trim().lines().collect();
-            if lines.len() >= 1 {
-                if let Ok(d) = lines[0].parse::<f64>() { duration = d; }
+            for line in stdout.trim().lines() {
+                if let Some((key, value)) = line.split_once('=') {
+                    match key {
+                        "duration" => { if let Ok(d) = value.parse::<f64>() { duration = d; } }
+                        "width" => { if let Ok(w) = value.parse::<i64>() { width = w; } }
+                        "height" => { if let Ok(h) = value.parse::<i64>() { height = h; } }
+                        "r_frame_rate" => {
+                            // Take the first valid frame rate (skip 0/0)
+                            if value != "0/0" {
+                                if let Some((num, den)) = value.split_once('/') {
+                                    if let (Ok(num), Ok(den)) = (num.parse::<f64>(), den.parse::<f64>()) {
+                                        if den != 0.0 {
+                                            fps = num / den;
+                                        }
+                                    }
+                                } else if let Ok(f) = value.parse::<f64>() {
+                                    fps = f;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
             }
-            if lines.len() >= 3 {
-                if let Ok(w) = lines[1].parse::<i64>() { width = w; }
-                if let Ok(h) = lines[2].parse::<i64>() { height = h; }
-            }
-            // Note: r_frame_rate is like "30/1", parsing fps can be added later
         }
     }
 
@@ -103,17 +118,26 @@ pub async fn extract_waveform(app: AppHandle, path: String) -> Result<serde_json
     }
 
     // Parse WAV and downsample
-    let samples = parse_wav_to_downsampled(&temp_wav, 2000)
+    let (samples, spec) = parse_wav_to_downsampled(&temp_wav, 2000)
         .map_err(|e| format!("Failed to parse waveform: {}", e))?;
 
     // Cleanup
     let _ = std::fs::remove_file(&temp_wav);
 
+    let sample_rate = spec.sample_rate;
+    let channels = spec.channels as usize;
+    let total_samples = samples.len();
+    let duration = if sample_rate == 0 || channels == 0 {
+        0.0
+    } else {
+        (total_samples / channels) as f64 / sample_rate as f64
+    };
+
     Ok(serde_json::json!({
         "samples": samples,
-        "sample_rate": 16000,
-        "duration": 10.0, // TODO: get real duration
-        "channels": 1
+        "sample_rate": sample_rate,
+        "duration": duration,
+        "channels": channels
     }))
 }
 
@@ -143,14 +167,15 @@ pub async fn extract_segment(
     let duration = end_time - start_time;
 
     let shell = app.shell();
+    // Put -ss before -i for a clean, fast seek; -t defines the output duration.
     let output = shell
         .command("ffmpeg")
         .args([
             "-y",
-            "-i", &path,
-            "-vn",
             "-ss", &start_time.to_string(),
             "-t", &duration.to_string(),
+            "-i", &path,
+            "-vn",
             "-acodec", "pcm_s16le",
             "-ar", "24000",
             "-ac", "1",
@@ -169,25 +194,38 @@ pub async fn extract_segment(
 }
 
 // --- WAV parser using the robust `hound` crate ---
-fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32>, String> {
+fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<(Vec<f32>, hound::WavSpec), String> {
     let mut reader = hound::WavReader::open(path).map_err(|e| format!("WAV open error: {}", e))?;
     let spec = reader.spec();
 
-    // Hound normalizes samples to f32 in [-1, 1]. We use absolute amplitude.
-    let samples: Vec<f32> = reader
-        .samples::<f32>()
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("WAV sample read error: {}", e))?
-        .into_iter()
-        .map(|s| s.abs())
-        .collect();
+    // Capture spec values before consuming the reader via .samples().
+    let sample_format = spec.sample_format;
+    let channels = spec.channels;
+    let bits_per_sample = spec.bits_per_sample;
 
-    if samples.is_empty() {
-        return Ok(vec![0.0; target_points]);
-    }
+    // Read samples in the native format and normalize to [-1, 1].
+    let samples: Vec<f32> = match sample_format {
+        hound::SampleFormat::Float => reader
+            .samples::<f32>()
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("WAV float sample read error: {}", e))?
+            .into_iter()
+            .map(|s| s.abs())
+            .collect(),
+        hound::SampleFormat::Int => {
+            let max_val = ((1u64 << bits_per_sample.saturating_sub(1)) as f32).max(1.0);
+            reader
+                .samples::<i32>()
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|e| format!("WAV int sample read error: {}", e))?
+                .into_iter()
+                .map(|s| (s as f32 / max_val).abs())
+                .collect()
+        }
+    };
 
     // Average channels if stereo (interleaved samples)
-    let samples = if spec.channels == 2 {
+    let samples = if channels == 2 {
         samples
             .chunks_exact(2)
             .map(|c| (c[0] + c[1]) / 2.0)
@@ -209,5 +247,5 @@ fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<Vec<f32
         }
     }
 
-    Ok(downsampled)
+    Ok((downsampled, spec))
 }

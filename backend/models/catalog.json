@@ -1,0 +1,39 @@
+{
+  "version": "1.1",
+  "description": "OmniClon 2 - Catálogo oficial de modelos soportados (autónomo, basado en ecosistema OmniVoice)",
+  "last_updated": "2026-06-18",
+  "models": [
+    {
+      "repo_id": "k2-fsa/OmniVoice",
+      "label": "OmniVoice (k2-fsa)",
+      "role": "VoiceClone",
+      "size_gb": 3.3,
+      "local_folder": "k2-fsa_OmniVoice",
+      "notes": "Modelo principal de clonación zero-shot de alta calidad. Pesos principales + audio_tokenizer."
+    },
+    {
+      "repo_id": "KittenML/kitten-tts-mini-0.8",
+      "label": "KittenTTS Mini",
+      "role": "TTS",
+      "size_gb": 0.4,
+      "local_folder": "KittenML_kitten-tts-mini-0.8",
+      "notes": "Modelo TTS ligero y rápido para pruebas o voz no clonada."
+    },
+    {
+      "repo_id": "openai/whisper-large-v3",
+      "label": "Whisper Large v3",
+      "role": "ASR",
+      "size_gb": 3.1,
+      "local_folder": "openai_whisper-large-v3",
+      "notes": "Transcripción automática (ASR). Opcional para el flujo A/B."
+    },
+    {
+      "repo_id": "pyannote/speaker-diarization-3.1",
+      "label": "PyAnnote Diarization 3.1",
+      "role": "Diarization",
+      "size_gb": 0.3,
+      "local_folder": "pyannote_speaker-diarization-3.1",
+      "notes": "Diarización de hablantes (útil para proyectos multi-persona)."
+    }
+  ]
+}

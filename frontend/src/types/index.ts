@@ -79,6 +79,33 @@ export interface ModelStatus {
   last_copy_result?: any;        // Resultado de la última copia (B2)
 }
 
+// Voice generation tuning options (from /voice/generate_options)
+export interface GenerateOption {
+  type: "float" | "int" | "bool" | "select" | "string";
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: any;
+  choices?: string[];
+  label: string;
+}
+
+export interface GenerateOptionsResponse {
+  options: Record<string, GenerateOption>;
+}
+
+export interface GenerationOptions {
+  speed: number;
+  num_step: number;
+  guidance_scale: number;
+  denoise: boolean;
+  postprocess_output: boolean;
+  language: string;
+  instruct: string;
+  duration: number | "";
+  t_shift: number | "";
+}
+
 // Backend status types (mirror from Rust)
 export type BackendStatusType = 
   | { NotStarted: null }

@@ -5,6 +5,68 @@ This is the primary source of truth for the history of this clean rewrite.
 
 ---
 
+## 2026-06-18 — Deep Audit & Core Flow Hardening (Autonomous, GPU-optimized)
+
+**Date:** 2026-06-18
+**Actor:** Kimi Code CLI
+**Goal:** Make OmniClon 2 fully autonomous, smooth, and optimized for the local RTX 3090, with a complete video → A/B → clone → export workflow.
+
+### Audit Findings
+- `ModelManager` failed to detect the local `k2-fsa_OmniVoice` model because it looked for folder names derived from `repo_id` instead of the actual `k2-fsa_OmniVoice` folder.
+- Runtime fallback to `C:\AI\OmniVoice-Studio2` still existed in both `model_manager.py` and `voice_cloning.py`.
+- `copy_to_dedicated` used the active models root as source, which is useless in dedicated mode (source == destination).
+- `catalog.json` listed `k2-fsa/KittenTTS` instead of the real `KittenML/kitten-tts-mini-0.8`.
+- No UI controls for OmniVoice tuning options (speed, num_step, guidance_scale, denoise, postprocess, language, instruct, duration, t_shift).
+- Generated audio was saved in `backend/generated/` (CWD-dependent) and only offered a base64 download.
+- System-wide `HTTP_PROXY` broke localhost backend communication unless `NO_PROXY` was set.
+- `spawn_backend` failed if a previous backend process was still bound to port 17493.
+- `extract_segment` placed `-ss` after `-i`, which can produce less clean cuts.
+
+### Changes Made
+1. **Backend autonomy**
+   - `model_manager.py`: default `shared_path=None`, auto-migration that clears OmniVoice shared paths in dedicated mode, folder-name normalization (`repo_id.replace("/", "_")`), optional `local_folder` in catalog, fixed `copy_to_dedicated` source logic.
+   - `voice_cloning.py`: removed `C:\AI\OmniVoice-Studio2` fallback; output now goes to `PROJECT_ROOT/data/generations/` with a descriptive filename.
+   - `catalog.json`: updated to real repo_ids and local folders.
+
+2. **Generation tuning**
+   - Extended `GenerationRequest` with speed, num_step, guidance_scale, denoise, postprocess_output, language, instruct, duration, t_shift.
+   - Passed all supported parameters to `OmniVoice.generate()`.
+   - Added `GET /voice/generate_options` endpoint and Tauri `get_generate_options` command.
+
+3. **Frontend polish**
+   - Rebuilt `VoicePanel.tsx` with tuning controls, persistent preferences in `localStorage`, robust base64 reference playback via `@tauri-apps/plugin-fs`, and a "Save as…" export button using dialog + fs.
+   - Added `GenerateOption` / `GenerationOptions` types.
+
+4. **Rust robustness**
+   - `lib.rs`: set `NO_PROXY`/`no_proxy` for localhost at startup.
+   - `backend.rs`: adopt an existing healthy backend instead of failing on port conflict.
+   - `commands/media.rs`: reorder ffmpeg args to `-ss -t -i` for cleaner A/B cuts.
+   - `capabilities/default.json`: added `fs:write-all`.
+
+### Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+- Backend loads real `k2-fsa_OmniVoice` on CUDA/float16 ✓
+- `/generate` endpoint produces real cloned WAV from a reference ✓
+- E2E Python smoke test: extracted 6s A/B from an Estambul clip → `/generate` → verified output WAV (4.14s, model `k2-fsa_OmniVoice (REAL inference, autonomous)`) ✓
+- `npm run tauri dev` starts cleanly, splash disappears, backend health checks pass ✓
+
+### Files Changed
+- `backend/services/model_manager.py`
+- `backend/services/voice_cloning.py`
+- `backend/models/catalog.json`
+- `backend/main.py`
+- `frontend/src/types/index.ts`
+- `frontend/src/components/panels/VoicePanel.tsx`
+- `frontend/src-tauri/src/lib.rs`
+- `frontend/src-tauri/src/backend.rs`
+- `frontend/src-tauri/src/commands/media.rs`
+- `frontend/src-tauri/capabilities/default.json`
+- `docs/errores.md` (new)
+- `scripts/e2e_video_clone_test.py` (new)
+
+---
+
 ## 2026-06-XX — Phase 0 Kickoff: Project Creation & Git
 
 **Date:** Start of execution after plan approval  

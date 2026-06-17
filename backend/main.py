@@ -188,6 +188,24 @@ async def generate_voice(payload: dict):
         }
 
 
+@app.get("/voice/generate_options")
+async def get_generate_options():
+    """Exposes OmniVoice generation tuning options to the frontend."""
+    return {
+        "options": {
+            "speed": {"type": "float", "min": 0.5, "max": 2.0, "default": 1.0, "step": 0.05, "label": "Speaking speed"},
+            "num_step": {"type": "int", "min": 4, "max": 64, "default": 24, "step": 1, "label": "Inference steps (quality)"},
+            "guidance_scale": {"type": "float", "min": 1.0, "max": 5.0, "default": 2.0, "step": 0.1, "label": "Guidance scale"},
+            "denoise": {"type": "bool", "default": True, "label": "Denoise output"},
+            "postprocess_output": {"type": "bool", "default": True, "label": "Post-process output"},
+            "language": {"type": "select", "choices": ["auto", "es", "en", "zh", "fr", "de", "it", "pt", "ja", "ko"], "default": "auto", "label": "Language"},
+            "instruct": {"type": "string", "default": "", "label": "Voice design instruction (optional)"},
+            "duration": {"type": "float", "min": 1.0, "max": 60.0, "default": None, "step": 0.5, "label": "Fixed duration (s), optional"},
+            "t_shift": {"type": "float", "min": 0.0, "max": 1.0, "default": None, "step": 0.05, "label": "T-shift (advanced)"},
+        }
+    }
+
+
 @app.get("/voice/status")
 async def get_voice_status():
     """Lightweight status for the voice cloning service (primary model, k2-fsa readiness, etc)."""

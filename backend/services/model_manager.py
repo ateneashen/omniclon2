@@ -151,15 +151,24 @@ class ModelManager:
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     raw = json.load(f)
-                    return ModelConfig(**raw)
+                    cfg = ModelConfig(**raw)
+                    # Autonomy migration: if we are in dedicated mode but still point to an
+                    # external OmniVoice shared folder, clear it so the app is self-contained.
+                    if cfg.mode == "dedicated" and cfg.shared_path:
+                        lowered = cfg.shared_path.lower()
+                        if "omnivoice" in lowered:
+                            print(f"[ModelManager] Migrating to fully autonomous: clearing shared_path {cfg.shared_path}")
+                            cfg.shared_path = None
+                            self._save_config(cfg)
+                    return cfg
             except Exception as e:
                 print(f"[ModelManager] Error cargando config: {e}. Creando nueva.")
 
         # Fully autonomous default: dedicated mode using the project's own data folder.
-        # Shared mode (legacy OmniVoice-Studio2) is available but no longer the default.
+        # Shared mode (legacy OmniVoice-Studio2) is available only if the user configures it manually.
         default = ModelConfig(
             mode="dedicated",
-            shared_path=self._detect_shared_path(),
+            shared_path=None,
             dedicated_path=str(self.models_dir),
             preferred_models=[],
         )
@@ -251,13 +260,20 @@ class ModelManager:
         for entry in self._catalog:
             repo_id = entry["repo_id"]
             folder_name = repo_id.split("/")[-1]
+            local_folder = entry.get("local_folder")
 
-            # Candidatos comunes
-            candidate_paths = [
+            # Candidatos comunes. The actual local folder often follows the
+            # repo_id with '/' replaced by '_' (e.g. k2-fsa/OmniVoice -> k2-fsa_OmniVoice).
+            normalized_name = repo_id.replace("/", "_")
+            candidate_paths = []
+            if local_folder:
+                candidate_paths.append(active_root / local_folder)
+            candidate_paths.extend([
+                active_root / normalized_name,
                 active_root / folder_name,
                 active_root / repo_id.replace("/", "--"),           # formato HF cache a veces
                 active_root / f"models--{repo_id.replace('/', '--')}",  # nombre completo HF
-            ]
+            ])
 
             installed = False
             location: ModelLocation = "missing"
@@ -356,7 +372,13 @@ class ModelManager:
                 self._last_copy_result = result
                 return result
 
-            source_root = self.get_active_models_root()
+            # In dedicated mode we want to copy FROM the shared path (if any),
+            # not from the dedicated folder into itself. In shared mode the active
+            # root already points to the shared folder.
+            if self.config.mode == "dedicated" and self.config.shared_path:
+                source_root = Path(self.config.shared_path)
+            else:
+                source_root = self.get_active_models_root()
             target_root = self.models_dir
 
             # === Chequeo previo de espacio en disco (pulido elegante B2) ===
@@ -385,9 +407,10 @@ class ModelManager:
                 print(f"\n[{i}/{len(repo_ids)}] Procesando: {repo_id}")
 
                 # 1. Localizar el modelo en el origen
-                folder_name = repo_id.split("/")[-1]
+                folder_name = entry.get("local_folder") or repo_id.split("/")[-1]
                 candidates = [
                     source_root / folder_name,
+                    source_root / repo_id.replace("/", "_"),
                     source_root / repo_id.replace("/", "--"),
                     source_root / f"models--{repo_id.replace('/', '--')}",
                 ]
