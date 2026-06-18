@@ -1,14 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { listen } from '@tauri-apps/api/event';
 import { useEditorStore } from '../../stores/editorStore';
 import { MediaClip, WaveformData } from '../../types';
 
-const TEST_CLIP_PATH = 'C:\\AI\\OmniClon2\\tests\\fixtures\\sample.mp4';
 const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm'];
 
 export default function MediaPanel() {
-  const { clips, activeClipId, addClip, setWaveform, setActiveClip } = useEditorStore();
+  const clips = useEditorStore((s) => s.clips);
+  const activeClipId = useEditorStore((s) => s.activeClipId);
+  const addClip = useEditorStore((s) => s.addClip);
+  const removeClip = useEditorStore((s) => s.removeClip);
+  const setWaveform = useEditorStore((s) => s.setWaveform);
+  const setActiveClip = useEditorStore((s) => s.setActiveClip);
   const [isImporting, setIsImporting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -19,7 +24,7 @@ export default function MediaPanel() {
     try {
       const clip = await invoke<MediaClip>('import_media', { path });
       addClip(clip);
-      const wf = await invoke<WaveformData>('extract_waveform', { path: clip.path });
+      const wf = await invoke<WaveformData>('extract_waveform', { path: clip.path, duration: clip.duration });
       setWaveform(wf);
     } catch (err) {
       const message = 'Failed to load video: ' + String(err);
@@ -43,22 +48,31 @@ export default function MediaPanel() {
     }
   }, [importClip]);
 
-  const handleLoadTest = useCallback(async () => {
-    await importClip(TEST_CLIP_PATH);
+  // Real Tauri file-drop support
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    listen('tauri://drag-drop', (event) => {
+      setIsDragOver(false);
+      const payload = event.payload as { paths?: string[] } | undefined;
+      const paths = payload?.paths;
+      if (paths && paths.length > 0) {
+        const first = paths[0];
+        const ext = first.split('.').pop()?.toLowerCase();
+        if (ext && VIDEO_EXTENSIONS.includes(ext)) {
+          importClip(first);
+        } else {
+          setLastError('Formato no soportado. Usa: ' + VIDEO_EXTENSIONS.map((e) => `.${e}`).join(', '));
+        }
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [importClip]);
-
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
-
-    // Tauri webview drag-drop does not expose full paths via dataTransfer.
-    // Recommend the dialog for reliable loading.
-    setLastError('Drag & drop from Explorer may not provide the full path. Please use "Load Video..." for reliable loading.');
-  }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -76,22 +90,13 @@ export default function MediaPanel() {
     <div className="flex flex-col h-full text-sm">
       <div className="font-medium mb-3 flex items-center justify-between">
         Media
-        <div className="flex gap-1">
-          <button
-            onClick={handleLoadVideo}
-            disabled={isImporting}
-            className="text-xs px-2 py-0.5 bg-[#00b4d8] text-black rounded hover:bg-[#0099b8] disabled:opacity-50 transition"
-          >
-            {isImporting ? 'Loading…' : 'Load Video…'}
-          </button>
-          <button
-            onClick={handleLoadTest}
-            disabled={isImporting}
-            className="text-xs px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 disabled:opacity-50 transition"
-          >
-            Test
-          </button>
-        </div>
+        <button
+          onClick={handleLoadVideo}
+          disabled={isImporting}
+          className="text-xs px-2 py-0.5 bg-[#00b4d8] text-black rounded hover:bg-[#0099b8] disabled:opacity-50 transition"
+        >
+          {isImporting ? 'Loading video & waveform…' : 'Load Video…'}
+        </button>
       </div>
 
       <div
@@ -102,7 +107,6 @@ export default function MediaPanel() {
         `}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
         onClick={handleLoadVideo}
       >
         <div className="text-white/60 text-xs">Drop video here or click to browse</div>
@@ -123,14 +127,31 @@ export default function MediaPanel() {
             {clips.map((clip) => (
               <li
                 key={clip.id}
-                onClick={() => setActiveClip(clip.id)}
                 className={`
-                  flex items-center justify-between px-2 py-1.5 rounded text-xs cursor-pointer transition
+                  group flex items-center justify-between px-2 py-1.5 rounded text-xs cursor-pointer transition
                   ${activeClipId === clip.id ? 'bg-[#00b4d8]/20 text-white' : 'hover:bg-white/5 text-white/70'}
                 `}
               >
-                <span className="truncate pr-2">{clip.name}</span>
-                <span className="text-white/40 shrink-0">{clip.duration.toFixed(1)}s</span>
+                <span
+                  className="truncate pr-2 flex-1"
+                  onClick={() => setActiveClip(clip.id)}
+                >
+                  {clip.name}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-white/40">{clip.duration.toFixed(1)}s</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removeClip(clip.id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1 transition"
+                    aria-label={`Remove ${clip.name}`}
+                    title="Remove clip"
+                  >
+                    ✕
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

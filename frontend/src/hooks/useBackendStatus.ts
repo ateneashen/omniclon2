@@ -20,14 +20,12 @@ export function useBackendStatus(poll = true): BackendStatusResult {
       setStatus(bootstrap);
     } catch (err) {
       console.error('[useBackendStatus] poll failed', err);
-      setStatus((prev) =>
-        prev ?? {
-          backend_status: { Failed: { error: String(err) } },
-          is_healthy: false,
-          stage: 'failed',
-          message: String(err),
-        }
-      );
+      setStatus({
+        backend_status: { Failed: { error: String(err) } },
+        is_healthy: false,
+        stage: 'failed',
+        message: String(err),
+      });
     }
   }, []);
 

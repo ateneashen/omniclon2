@@ -16,18 +16,19 @@ export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showOverlay, setShowOverlay] = useState(false);
   const [overlayIcon, setOverlayIcon] = useState<'play' | 'pause'>('play');
+  const [videoError, setVideoError] = useState<string | null>(null);
+  // Start unmuted so the user can hear the source audio while scrubbing.
+  const [muted, setMuted] = useState(false);
   const overlayTimeoutRef = useRef<number | null>(null);
 
-  const {
-    activeClipId,
-    clips,
-    currentTime,
-    isPlaying,
-    region,
-    isLooping,
-    setCurrentTime,
-    setPlaying,
-  } = useEditorStore();
+  const activeClipId = useEditorStore((s) => s.activeClipId);
+  const clips = useEditorStore((s) => s.clips);
+  const currentTime = useEditorStore((s) => s.currentTime);
+  const isPlaying = useEditorStore((s) => s.isPlaying);
+  const region = useEditorStore((s) => s.region);
+  const isLooping = useEditorStore((s) => s.isLooping);
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const setPlaying = useEditorStore((s) => s.setPlaying);
 
   const activeClip = clips.find((c) => c.id === activeClipId);
 
@@ -50,6 +51,22 @@ export default function VideoPreview() {
     [clearOverlayTimeout]
   );
 
+  // Reset video state when the active clip changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !activeClip) return;
+    setVideoError(null);
+    video.pause();
+    video.currentTime = 0;
+    setPlaying(false);
+    // Ensure the element starts unmuted and at full volume so the user can
+    // hear source audio while scrubbing.
+    video.muted = false;
+    video.volume = 1;
+    setMuted(false);
+    video.load();
+  }, [activeClip, setPlaying]);
+
   // Sync currentTime from store to video
   useEffect(() => {
     const video = videoRef.current;
@@ -70,7 +87,7 @@ export default function VideoPreview() {
       video.removeEventListener('timeupdate', onTimeUpdate);
       video.removeEventListener('ended', onEnded);
     };
-  }, [activeClip, currentTime, setCurrentTime, setPlaying]);
+  }, [activeClip, setCurrentTime, setPlaying]);
 
   // Sync play/pause from store
   useEffect(() => {
@@ -121,6 +138,14 @@ export default function VideoPreview() {
     }
   }, [setPlaying, triggerOverlay]);
 
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const next = !muted;
+    setMuted(next);
+    video.muted = next;
+  }, [muted]);
+
   if (!activeClip) {
     return (
       <div className="flex-1 flex items-center justify-center bg-black/70 text-white/40 text-sm">
@@ -134,11 +159,30 @@ export default function VideoPreview() {
   return (
     <div className="flex-1 bg-black flex items-center justify-center relative overflow-hidden">
       <video
+        key={activeClip.id}
         ref={videoRef}
         src={videoSrc}
         className="max-h-full max-w-full"
         controls={false}
+        preload="auto"
+        playsInline
+        muted={muted}
         onClick={handleClick}
+        onLoadedMetadata={() => {
+          setVideoError(null);
+          if (videoRef.current) {
+            videoRef.current.currentTime = currentTime;
+            videoRef.current.muted = muted;
+            videoRef.current.volume = 1;
+          }
+        }}
+        onError={(e) => {
+          const target = e.currentTarget;
+          const code = target.error?.code ?? 'unknown';
+          const message = target.error?.message ?? 'Could not load video';
+          setVideoError(`Video error ${code}: ${message}`);
+          console.error('Video preview error:', target.error);
+        }}
       />
 
       {showOverlay && (
@@ -156,6 +200,28 @@ export default function VideoPreview() {
       <div className="absolute bottom-3 right-3 text-[10px] text-white/40 bg-black/50 px-1.5 py-0.5 rounded truncate max-w-[40%]">
         {activeClip.name}
       </div>
+
+      <button
+        onClick={toggleMute}
+        className={`absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded transition ${
+          muted
+            ? 'bg-red-600/80 text-white hover:bg-red-500/80'
+            : 'bg-black/60 text-white/70 hover:bg-black/80'
+        }`}
+        aria-label={muted ? 'Unmute video' : 'Mute video'}
+        title={muted ? 'Video muted — click to unmute' : 'Mute video'}
+      >
+        {muted ? '🔇 Muted' : '🔊 Sound on'}
+      </button>
+
+      {videoError && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-center p-4">
+          <div className="text-red-300 text-xs max-w-xs">
+            <p className="font-medium mb-1">No se pudo reproducir el video</p>
+            <p className="text-white/60">{videoError}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,41 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { useEffect } from 'react';
 import { useBackendStatus } from '../../hooks/useBackendStatus';
-
-interface VoiceStatus {
-  ready?: boolean;
-  primary_cloning_model?: string | null;
-  k2fsa_loaded?: boolean;
-  k2fsa_files_verified?: boolean;
-  device?: 'cuda' | 'cpu' | string;
-  error?: string;
-}
-
-const STATUS_POLL_MS = 5000;
+import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
 
 export default function Header() {
   const { isHealthy, status: backendStatus } = useBackendStatus(true);
-  const [voiceStatus, setVoiceStatus] = useState<VoiceStatus | null>(null);
-  const [voiceLoading, setVoiceLoading] = useState(true);
-
-  const fetchVoiceStatus = useCallback(async () => {
-    setVoiceLoading(true);
-    try {
-      const s = await invoke<VoiceStatus>('get_voice_status');
-      setVoiceStatus(s);
-    } catch (err) {
-      console.error('[Header] voice status failed', err);
-      setVoiceStatus({ ready: false, error: 'unavailable' });
-    } finally {
-      setVoiceLoading(false);
-    }
-  }, []);
+  const { status: voiceStatus, loading: voiceLoading } = useVoiceStore();
 
   useEffect(() => {
-    fetchVoiceStatus();
-    const interval = setInterval(fetchVoiceStatus, STATUS_POLL_MS);
-    return () => clearInterval(interval);
-  }, [fetchVoiceStatus]);
+    startVoiceStatusPolling();
+  }, []);
 
   const stage = backendStatus?.stage ?? 'checking';
   const backendLabel = isHealthy

@@ -6,33 +6,41 @@ import { useBackendStatus } from './hooks/useBackendStatus';
 import BootstrapSplash from './components/BootstrapSplash';
 import Header from './components/layout/Header';
 import MediaPanel from './components/panels/MediaPanel';
+import ScriptsPanel from './components/panels/ScriptsPanel';
 import VoicePanel from './components/panels/VoicePanel';
 import VideoPreview from './components/preview/VideoPreview';
 import Timeline from './components/timeline/Timeline';
 import ModelsPanel from './components/models/ModelsPanel';
 
-type LeftTab = 'media' | 'models';
+type LeftTab = 'media' | 'models' | 'scripts';
 
 function TimelineToolbar() {
-  const { isPlaying, isLooping, setPlaying, setCurrentTime, toggleLoop } = useEditorStore();
+  const isPlaying = useEditorStore((s) => s.isPlaying);
+  const isLooping = useEditorStore((s) => s.isLooping);
+  const setPlaying = useEditorStore((s) => s.setPlaying);
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const toggleLoop = useEditorStore((s) => s.toggleLoop);
 
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-white/10 bg-[#111]">
       <button
         onClick={() => setPlaying(!isPlaying)}
         className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+        aria-label={isPlaying ? 'Pause' : 'Play'}
       >
         {isPlaying ? 'Pause' : 'Play'}
       </button>
       <button
         onClick={() => setCurrentTime(0)}
         className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+        aria-label="Reset time"
       >
         Reset
       </button>
       <button
         onClick={toggleLoop}
         className={`px-2 py-0.5 rounded transition ${isLooping ? 'bg-[#00b4d8]/30 text-[#00b4d8]' : 'bg-white/10 hover:bg-white/15'}`}
+        aria-label={isLooping ? 'Loop on' : 'Loop off'}
       >
         Loop {isLooping ? 'ON' : 'OFF'}
       </button>
@@ -50,8 +58,11 @@ function MainInterface() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Tabbed Panel (Media / Models) */}
         <div className="w-64 border-r border-white/10 p-3 text-sm flex flex-col shrink-0">
-          <div className="flex mb-3 border-b border-white/10">
+          <div className="flex mb-3 border-b border-white/10" role="tablist" aria-label="Left panel tabs">
             <button
+              role="tab"
+              aria-selected={leftTab === 'media'}
+              tabIndex={leftTab === 'media' ? 0 : -1}
               onClick={() => setLeftTab('media')}
               className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
                 leftTab === 'media'
@@ -62,6 +73,9 @@ function MainInterface() {
               Media
             </button>
             <button
+              role="tab"
+              aria-selected={leftTab === 'models'}
+              tabIndex={leftTab === 'models' ? 0 : -1}
               onClick={() => setLeftTab('models')}
               className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
                 leftTab === 'models'
@@ -71,9 +85,24 @@ function MainInterface() {
             >
               Models
             </button>
+            <button
+              role="tab"
+              aria-selected={leftTab === 'scripts'}
+              tabIndex={leftTab === 'scripts' ? 0 : -1}
+              onClick={() => setLeftTab('scripts')}
+              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
+                leftTab === 'scripts'
+                  ? 'border-[#00b4d8] text-white'
+                  : 'border-transparent text-white/50 hover:text-white/80'
+              }`}
+            >
+              Scripts
+            </button>
           </div>
 
-          {leftTab === 'media' ? <MediaPanel /> : <ModelsPanel />}
+          <div role="tabpanel" className="flex-1 min-h-0 overflow-hidden">
+            {leftTab === 'media' ? <MediaPanel /> : leftTab === 'models' ? <ModelsPanel /> : <ScriptsPanel />}
+          </div>
         </div>
 
         {/* Center: Preview + Timeline */}
@@ -96,7 +125,7 @@ const SPLASH_FADE_MS = 350;
 
 function App() {
   useKeyboardShortcuts();
-  const { isReady } = useBackendStatus(true);
+  const { isReady, status } = useBackendStatus(true);
   const [showSplash, setShowSplash] = useState(true);
   const [splashVisible, setSplashVisible] = useState(true);
 
@@ -114,8 +143,9 @@ function App() {
         <div
           className="fixed inset-0 z-50 transition-opacity duration-[350ms]"
           style={{ opacity: splashVisible ? 1 : 0, pointerEvents: splashVisible ? 'auto' : 'none' }}
+          aria-hidden={!splashVisible}
         >
-          <BootstrapSplash />
+          <BootstrapSplash backendStatus={status} />
         </div>
       )}
       <MainInterface />

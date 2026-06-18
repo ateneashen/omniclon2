@@ -2,35 +2,33 @@ import { useEffect } from 'react';
 import { useEditorStore } from '../stores/editorStore';
 
 export function useKeyboardShortcuts() {
-  const {
-    setCurrentTime,
-    duration,
-    currentTime,
-    setRegion,
-    isPlaying,
-    setPlaying,
-    toggleLoop,
-    setMarkA,
-    setMarkB,
-  } = useEditorStore();
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const setPlaying = useEditorStore((s) => s.setPlaying);
+  const toggleLoop = useEditorStore((s) => s.toggleLoop);
+  const setMarkA = useEditorStore((s) => s.setMarkA);
+  const setMarkB = useEditorStore((s) => s.setMarkB);
+  const resetRegion = useEditorStore((s) => s.resetRegion);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable) return;
+
+      // Read fresh state directly from the store to avoid stale refs
+      const state = useEditorStore.getState();
 
       switch (e.key.toLowerCase()) {
         case ' ':
           e.preventDefault();
-          setPlaying(!isPlaying);
+          setPlaying(!state.isPlaying);
           break;
 
         case 'i':
-          setMarkA(currentTime);
+          setMarkA(state.currentTime);
           break;
 
         case 'o':
-          setMarkB(currentTime);
+          setMarkB(state.currentTime);
           break;
 
         case 'l':
@@ -38,11 +36,11 @@ export function useKeyboardShortcuts() {
           break;
 
         case 'arrowleft':
-          setCurrentTime(Math.max(0, currentTime - (e.shiftKey ? 1 : 0.1)));
+          setCurrentTime(Math.max(0, state.currentTime - (e.shiftKey ? 1 : 0.1)));
           break;
 
         case 'arrowright':
-          setCurrentTime(Math.min(duration, currentTime + (e.shiftKey ? 1 : 0.1)));
+          setCurrentTime(Math.min(state.duration, state.currentTime + (e.shiftKey ? 1 : 0.1)));
           break;
 
         case 'home':
@@ -50,17 +48,17 @@ export function useKeyboardShortcuts() {
           break;
 
         case 'end':
-          setCurrentTime(duration);
+          setCurrentTime(state.duration);
           break;
 
         case 'r':
           // Reset A-B to full
-          setRegion({ start: 0, end: duration });
+          resetRegion();
           break;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentTime, duration, isPlaying, setPlaying, setCurrentTime, setRegion, toggleLoop, setMarkA, setMarkB]);
+  }, [setPlaying, setCurrentTime, toggleLoop, setMarkA, setMarkB, resetRegion]);
 }

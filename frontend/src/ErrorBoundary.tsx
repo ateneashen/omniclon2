@@ -1,7 +1,7 @@
-import React from "react";
+import { Component, ReactNode } from 'react';
 
 interface Props {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 interface State {
@@ -9,7 +9,7 @@ interface State {
   error: Error | null;
 }
 
-export class ErrorBoundary extends React.Component<Props, State> {
+export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -20,25 +20,29 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error("Uncaught error in React tree:", error, errorInfo);
-    // Also paint it visibly
-    const el = document.createElement("div");
-    el.style.cssText = "position:fixed; top:0; left:0; right:0; background:#b91c1c; color:white; padding:12px; z-index:99999; font-family:monospace; white-space:pre-wrap;";
-    el.textContent = `REACT CRASH:\n${error.message}\n\n${error.stack}`;
-    document.body.appendChild(el);
+    console.error('Uncaught error in React tree:', error, errorInfo);
   }
+
+  handleReset = () => {
+    this.setState({ hasError: false, error: null });
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: 20, background: "#111", color: "#f87171", fontFamily: "monospace", height: "100vh" }}>
-          <h1 style={{ color: "white" }}>React crashed</h1>
-          <pre style={{ whiteSpace: "pre-wrap" }}>
+        <div className="h-screen w-screen bg-[#111] text-red-400 font-mono flex flex-col items-center justify-center p-6 text-center">
+          <h1 className="text-white text-xl mb-2">React crashed</h1>
+          <pre className="text-left text-xs bg-black/50 p-4 rounded max-w-2xl max-h-[60vh] overflow-auto whitespace-pre-wrap">
             {this.state.error?.message}
-            {"\n\n"}
+            {'\n\n'}
             {this.state.error?.stack}
           </pre>
-          <p>Check the red bar at the top of the window for more details.</p>
+          <button
+            onClick={this.handleReset}
+            className="mt-4 px-4 py-2 bg-white/10 hover:bg-white/15 rounded text-white text-sm transition"
+          >
+            Try again
+          </button>
         </div>
       );
     }

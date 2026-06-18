@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
-import { useBackendStatus } from '../hooks/useBackendStatus';
+import { BootstrapStatus } from '../types';
 import ModelsSplashSection from './splash/ModelsSplashSection';
 
 interface LogLine {
   line: string;
   timestamp: number;
+}
+
+interface Props {
+  backendStatus: BootstrapStatus | null;
 }
 
 const STAGE_LABELS: Record<string, { label: string; description: string }> = {
@@ -51,11 +55,11 @@ function detectHints(logs: string[]): string[] {
   return hints.length > 0 ? hints : ['If the problem persists, use "Copy Error" for diagnostics.'];
 }
 
-export default function BootstrapSplash() {
-  const { status } = useBackendStatus(true);
+export default function BootstrapSplash({ backendStatus }: Props) {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [logsOpen, setLogsOpen] = useState(true);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const pollLogs = async () => {
     try {
@@ -82,6 +86,12 @@ export default function BootstrapSplash() {
     pollLogs();
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (!copyNotice) return;
+    const t = setTimeout(() => setCopyNotice(null), 2500);
+    return () => clearTimeout(t);
+  }, [copyNotice]);
 
   const handleRetry = async () => {
     setIsRetrying(true);
@@ -116,14 +126,22 @@ export default function BootstrapSplash() {
       .join('\n');
 
     const full = errorText || logs.slice(-30).map((l) => l.line).join('\n');
-    await navigator.clipboard.writeText(full);
-    alert('Last errors copied to clipboard. Paste them when asking for help.');
+    try {
+      await navigator.clipboard.writeText(full);
+      setCopyNotice('Last errors copied to clipboard.');
+    } catch {
+      setCopyNotice('Could not copy automatically.');
+    }
   };
 
   const handleCopyFullLog = async () => {
     const fullLog = logs.map((l) => l.line).join('\n');
-    await navigator.clipboard.writeText(fullLog);
-    alert('Full recent log copied. Excellent for detailed debugging.');
+    try {
+      await navigator.clipboard.writeText(fullLog);
+      setCopyNotice('Full recent log copied.');
+    } catch {
+      setCopyNotice('Could not copy automatically.');
+    }
   };
 
   const handleOpenLogs = async () => {
@@ -142,15 +160,15 @@ export default function BootstrapSplash() {
       } catch {
         // ignore secondary logging failure
       }
-      alert('Could not open the logs folder automatically. Logs are located in %LOCALAPPDATA%\\OmniClon2\\Logs');
+      setCopyNotice('Could not open logs folder automatically.');
     }
   };
 
-  const currentStage = status?.stage || 'checking';
+  const currentStage = backendStatus?.stage || 'checking';
   const stageInfo = STAGE_LABELS[currentStage] || STAGE_LABELS.checking;
   const hints = detectHints(logs.map((l) => l.line));
 
-  const isReady = status?.is_healthy && currentStage === 'ready';
+  const isReady = backendStatus?.is_healthy && currentStage === 'ready';
 
   return (
     <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center z-50 text-white">
@@ -171,7 +189,7 @@ export default function BootstrapSplash() {
             <div className="text-xl font-medium">{stageInfo.label}</div>
           </div>
           <div className="text-white/70 text-sm pl-6">{stageInfo.description}</div>
-          {status?.message && <div className="pl-6 mt-1 text-xs text-white/50">{status.message}</div>}
+          {backendStatus?.message && <div className="pl-6 mt-1 text-xs text-white/50">{backendStatus.message}</div>}
 
           <div className="pl-6 mt-3">
             <div className="h-1 bg-white/10 rounded overflow-hidden">
@@ -199,11 +217,18 @@ export default function BootstrapSplash() {
           </div>
         )}
 
+        {copyNotice && (
+          <div className="mb-4 text-center text-xs text-emerald-300 bg-emerald-950/30 border border-emerald-500/30 rounded py-2">
+            {copyNotice}
+          </div>
+        )}
+
         {/* Live Logs — collapsible */}
         <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
           <button
             onClick={() => setLogsOpen((v) => !v)}
             className="w-full px-4 py-2 text-xs uppercase tracking-widest text-white/40 border-b border-white/10 flex justify-between items-center hover:bg-white/5 transition"
+            aria-expanded={logsOpen}
           >
             <span>Diagnostic Logs</span>
             <span className="flex items-center gap-2 text-white/30">

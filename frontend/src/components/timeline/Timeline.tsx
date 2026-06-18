@@ -4,6 +4,11 @@ import { useEditorStore } from '../../stores/editorStore';
 const PADDING = 48;
 const WAVE_HEIGHT = 68;
 const RULER_HEIGHT = 26;
+const HANDLE_WIDTH = 10;
+const HANDLE_HIT_RADIUS = 20;
+// Browser canvas width limits (Chrome ~32k). Keep well below that so very
+// long videos (e.g. 1800s) still render instead of producing a blank timeline.
+const MAX_CANVAS_WIDTH = 12000;
 
 function formatSeconds(seconds: number): string {
   return `${seconds.toFixed(2)}s`;
@@ -13,26 +18,31 @@ export default function Timeline() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const {
-    waveform,
-    duration,
-    currentTime,
-    region,
-    zoom,
-    setCurrentTime,
-    setRegion,
-    setZoom,
-  } = useEditorStore();
+  const waveform = useEditorStore((s) => s.waveform);
+  const duration = useEditorStore((s) => s.duration);
+  const currentTime = useEditorStore((s) => s.currentTime);
+  const region = useEditorStore((s) => s.region);
+  const zoom = useEditorStore((s) => s.zoom);
+  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
+  const setRegion = useEditorStore((s) => s.setRegion);
+  const setZoom = useEditorStore((s) => s.setZoom);
+  const setMarkA = useEditorStore((s) => s.setMarkA);
+  const setMarkB = useEditorStore((s) => s.setMarkB);
+  const resetRegion = useEditorStore((s) => s.resetRegion);
 
   const [isDragging, setIsDragging] = useState<'playhead' | 'a' | 'b' | null>(null);
+  const [hoverHandle, setHoverHandle] = useState<'a' | 'b' | null>(null);
 
   const pixelsPerSecond = 80 * zoom;
-  const totalWidth = duration * pixelsPerSecond + PADDING * 2;
+  // Clamp the effective resolution so the canvas never exceeds the browser limit.
+  const effectivePixelsPerSecond =
+    duration > 0 ? Math.min(pixelsPerSecond, MAX_CANVAS_WIDTH / duration) : pixelsPerSecond;
+  const totalWidth = duration * effectivePixelsPerSecond + PADDING * 2;
 
-  const timeToX = useCallback((t: number) => PADDING + t * pixelsPerSecond, [pixelsPerSecond]);
+  const timeToX = useCallback((t: number) => PADDING + t * effectivePixelsPerSecond, [effectivePixelsPerSecond]);
   const xToTime = useCallback(
-    (x: number) => Math.max(0, Math.min(duration, (x - PADDING) / pixelsPerSecond)),
-    [pixelsPerSecond, duration]
+    (x: number) => Math.max(0, Math.min(duration, (x - PADDING) / effectivePixelsPerSecond)),
+    [effectivePixelsPerSecond, duration]
   );
 
   // Draw timeline
@@ -71,12 +81,12 @@ export default function Timeline() {
     // Time markers
     ctx.fillStyle = '#666';
     ctx.font = '11px Inter, system-ui, sans-serif';
-    ctx.textAlign = 'center';
 
     const step = zoom > 2 ? 0.5 : zoom > 0.5 ? 1 : 5;
     for (let t = 0; t <= duration; t += step) {
       const x = timeToX(t);
       const isMajor = Math.abs(t % (step * 2)) < 0.001;
+      const isLast = Math.abs(t - duration) < 0.001;
 
       ctx.strokeStyle = isMajor ? '#444' : '#2a2a2a';
       ctx.beginPath();
@@ -85,19 +95,28 @@ export default function Timeline() {
       ctx.stroke();
 
       if (isMajor) {
-        ctx.fillText(t.toFixed(1) + 's', x, RULER_HEIGHT - 14);
+        if (t === 0) {
+          ctx.textAlign = 'left';
+          ctx.fillText(t.toFixed(1) + 's', x + 2, RULER_HEIGHT - 14);
+        } else if (isLast) {
+          ctx.textAlign = 'right';
+          ctx.fillText(t.toFixed(1) + 's', x - 2, RULER_HEIGHT - 14);
+        } else {
+          ctx.textAlign = 'center';
+          ctx.fillText(t.toFixed(1) + 's', x, RULER_HEIGHT - 14);
+        }
       }
     }
 
     // Waveform area
     const waveY = RULER_HEIGHT + 4;
     ctx.fillStyle = '#111';
-    ctx.fillRect(PADDING, waveY, duration * pixelsPerSecond, WAVE_HEIGHT);
+    ctx.fillRect(PADDING, waveY, duration * effectivePixelsPerSecond, WAVE_HEIGHT);
 
     // Draw waveform with min/max filled rects
     if (waveform && waveform.samples.length > 0 && duration > 0) {
       const samples = waveform.samples;
-      const totalPixels = Math.max(1, Math.floor(duration * pixelsPerSecond));
+      const totalPixels = Math.max(1, Math.floor(duration * effectivePixelsPerSecond));
       const samplesPerPixel = Math.max(1, Math.floor(samples.length / totalPixels));
 
       ctx.fillStyle = '#555';
@@ -131,15 +150,17 @@ export default function Timeline() {
         ctx.fillRect(aX, waveY, bX - aX, WAVE_HEIGHT);
 
         // A handle
-        ctx.fillStyle = '#ff6b6b';
-        ctx.fillRect(aX - 1, waveY, 3, WAVE_HEIGHT);
+        const aHover = hoverHandle === 'a' || isDragging === 'a';
+        ctx.fillStyle = aHover ? '#ff8585' : '#ff6b6b';
+        ctx.fillRect(aX - HANDLE_WIDTH / 2, waveY, HANDLE_WIDTH, WAVE_HEIGHT);
         ctx.font = 'bold 11px Inter, system-ui';
-        ctx.fillText('A', aX + 6, waveY + 14);
+        ctx.fillText('A', aX + 10, waveY + 14);
 
         // B handle
-        ctx.fillStyle = '#4ecdc4';
-        ctx.fillRect(bX - 2, waveY, 3, WAVE_HEIGHT);
-        ctx.fillText('B', bX - 14, waveY + 14);
+        const bHover = hoverHandle === 'b' || isDragging === 'b';
+        ctx.fillStyle = bHover ? '#6fe0d8' : '#4ecdc4';
+        ctx.fillRect(bX - HANDLE_WIDTH / 2, waveY, HANDLE_WIDTH, WAVE_HEIGHT);
+        ctx.fillText('B', bX - 18, waveY + 14);
 
         // A/B duration label
         const durationText = formatSeconds(region.end - region.start);
@@ -173,7 +194,7 @@ export default function Timeline() {
     ctx.lineTo(playX + 6, 9);
     ctx.closePath();
     ctx.fill();
-  }, [waveform, duration, currentTime, region, zoom, pixelsPerSecond, timeToX]);
+  }, [waveform, duration, currentTime, region, zoom, effectivePixelsPerSecond, timeToX, xToTime, hoverHandle, isDragging]);
 
   // Auto-scroll to keep playhead visible
   useEffect(() => {
@@ -192,93 +213,190 @@ export default function Timeline() {
     }
   }, [currentTime, timeToX, isDragging]);
 
-  // Mouse handling for A/B and playhead
-  const handleMouseDown = (e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  const getHandleAt = useCallback(
+    (x: number) => {
+      const aX = timeToX(region.start);
+      const bX = timeToX(region.end);
+      if (Math.abs(x - aX) < HANDLE_HIT_RADIUS) return 'a';
+      if (Math.abs(x - bX) < HANDLE_HIT_RADIUS) return 'b';
+      return null;
+    },
+    [region.start, region.end, timeToX]
+  );
 
-    const x = e.clientX - rect.left;
-    const time = xToTime(x);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
 
-    const aX = timeToX(region.start);
-    const bX = timeToX(region.end);
+      const x = e.clientX - rect.left;
+      const time = xToTime(x);
+      const handle = getHandleAt(x);
 
-    if (Math.abs(x - aX) < 12) {
-      setIsDragging('a');
-    } else if (Math.abs(x - bX) < 12) {
-      setIsDragging('b');
-    } else {
-      setIsDragging('playhead');
-      setCurrentTime(time);
-    }
-  };
+      if (handle === 'a') {
+        setIsDragging('a');
+      } else if (handle === 'b') {
+        setIsDragging('b');
+      } else {
+        setIsDragging('playhead');
+        setCurrentTime(time);
+      }
+    },
+    [getHandleAt, setCurrentTime]
+  );
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const handle = getHandleAt(x);
+      setHoverHandle(handle);
+    },
+    [getHandleAt]
+  );
+
+  useEffect(() => {
     if (!isDragging) return;
 
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const handleMouseMoveWindow = (e: MouseEvent) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = e.clientX - rect.left;
+      const time = xToTime(x);
 
-    const x = e.clientX - rect.left;
-    const time = xToTime(x);
+      if (isDragging === 'playhead') {
+        setCurrentTime(time);
+      } else if (isDragging === 'a') {
+        setRegion({ start: Math.min(time, region.end - 0.05) });
+      } else if (isDragging === 'b') {
+        setRegion({ end: Math.max(time, region.start + 0.05) });
+      }
+    };
 
-    if (isDragging === 'playhead') {
-      setCurrentTime(time);
-    } else if (isDragging === 'a') {
-      setRegion({ start: Math.min(time, region.end - 0.05) });
-    } else if (isDragging === 'b') {
-      setRegion({ end: Math.max(time, region.start + 0.05) });
-    }
-  };
+    const handleMouseUp = () => setIsDragging(null);
 
-  const handleMouseUp = () => setIsDragging(null);
+    window.addEventListener('mousemove', handleMouseMoveWindow);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMoveWindow);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, region.start, region.end, setCurrentTime, setRegion, xToTime]);
 
   const handleZoomIn = () => setZoom(zoom * 1.25);
   const handleZoomOut = () => setZoom(zoom / 1.25);
   const handleZoomReset = () => setZoom(1);
+  const handleAutoRegion = () => {
+    const end = Math.min(duration, 5);
+    setRegion({ start: 0, end });
+  };
+
+  const cursor = isDragging === 'a' || isDragging === 'b'
+    ? 'cursor-ew-resize'
+    : isDragging === 'playhead'
+      ? 'cursor-col-resize'
+      : hoverHandle
+        ? 'cursor-ew-resize'
+        : 'cursor-pointer';
 
   return (
     <div className="border-t border-white/10 bg-[#111] shrink-0">
       <div className="flex items-center justify-between px-3 py-1 text-xs border-b border-white/10">
-        <div className="text-white/50">
-          {region.end > region.start ? (
-            <>A/B: {region.start.toFixed(2)}s — {region.end.toFixed(2)}s ({(region.end - region.start).toFixed(2)}s)</>
-          ) : (
-            <>No A/B region selected</>
-          )}
+        <div className="flex items-center gap-2 text-white/60">
+          <button
+            onClick={() => setMarkA(currentTime)}
+            className="px-2 py-0.5 bg-[#ff6b6b]/20 text-[#ff6b6b] rounded hover:bg-[#ff6b6b]/30 transition"
+            title="Set A at current playhead (shortcut: I)"
+          >
+            Set A
+          </button>
+          <button
+            onClick={() => setMarkB(currentTime)}
+            className="px-2 py-0.5 bg-[#4ecdc4]/20 text-[#4ecdc4] rounded hover:bg-[#4ecdc4]/30 transition"
+            title="Set B at current playhead (shortcut: O)"
+          >
+            Set B
+          </button>
+          <button
+            onClick={resetRegion}
+            className="px-2 py-0.5 bg-white/10 text-white/70 rounded hover:bg-white/15 transition"
+            title="Reset A/B to full clip (shortcut: R)"
+          >
+            Clear
+          </button>
+          <button
+            onClick={handleAutoRegion}
+            className="px-2 py-0.5 bg-white/10 text-white/70 rounded hover:bg-white/15 transition"
+            title="Select the first 5 seconds as reference"
+          >
+            Auto 5s
+          </button>
+          <span className="text-white/40 hidden sm:inline">
+            Drag red/green handles or use I/O keys
+          </span>
         </div>
         <div className="flex items-center gap-1">
+          <span className="text-white/40 mr-1">
+            {region.end > region.start
+              ? `${formatSeconds(region.end - region.start)} selected`
+              : 'No A/B selected'}
+          </span>
           <button
             onClick={handleZoomOut}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
+            aria-label="Zoom out"
             title="Zoom out"
           >
             −
           </button>
           <button
             onClick={handleZoomReset}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
+            aria-label="Reset zoom"
             title="Reset zoom"
           >
             {zoom.toFixed(1)}x
           </button>
           <button
             onClick={handleZoomIn}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
+            aria-label="Zoom in"
             title="Zoom in"
           >
             +
           </button>
         </div>
       </div>
-      <div
-        ref={containerRef}
-        className="h-36 bg-[#0a0a0a] overflow-x-auto select-none"
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      >
-        <canvas ref={canvasRef} onMouseDown={handleMouseDown} className="cursor-col-resize" />
+      <div ref={containerRef} className="relative h-36 bg-[#0a0a0a] overflow-x-auto select-none">
+        {duration > 0 && duration < 1 && (
+          <div className="absolute top-1 left-1/2 -translate-x-1/2 z-10 px-2 py-0.5 rounded bg-yellow-600/80 text-[10px] text-white pointer-events-none">
+            Clip is very short ({duration.toFixed(1)}s). Use 3-10s for best cloning results.
+          </div>
+        )}
+        {duration > 0 && !waveform && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-3 py-1 rounded bg-black/70 text-[11px] text-white/80 pointer-events-none">
+            Extracting waveform…
+          </div>
+        )}
+        {duration > 0 && region.end === region.start && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-3 py-1 rounded bg-black/70 text-[11px] text-white/80 pointer-events-none">
+            Set A and B to choose a reference segment
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={() => setHoverHandle(null)}
+          className={cursor}
+          role="slider"
+          aria-label="Timeline"
+          aria-valuemin={0}
+          aria-valuemax={duration}
+          aria-valuenow={currentTime}
+          tabIndex={0}
+        />
       </div>
     </div>
   );

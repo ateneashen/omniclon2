@@ -122,3 +122,4 @@ src-tauri/target/release/bundle/
 !backend/.gitkeep
 !frontend/.gitkeep
 !data/.gitkeep
+scripts/cdp_*.py

@@ -123,6 +123,27 @@ fn generate(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_j
     Ok(json)
 }
 
+/// Proxy to Python backend /generate_from_clip.
+/// Extracts the A-B segment and generates voice in one backend call.
+#[tauri::command]
+fn generate_from_clip(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/generate_from_clip", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Voice", "generate_from_clip command invoked, proxying to backend", None);
+
+    let resp = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(180))
+        .set("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /generate_from_clip: {}", e);
+            diagnostics::log_error(&app, "Voice", "generate_from_clip proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
 /// Proxy to Python backend /voice/generate_options to populate the tuning UI.
 #[tauri::command]
 fn get_generate_options(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -192,6 +213,7 @@ pub fn run() {
             get_bootstrap_status,
             restart_backend,
             generate,
+            generate_from_clip,
             get_generate_options,
             get_voice_status,
             commands::media::import_media,

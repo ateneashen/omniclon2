@@ -1,31 +1,28 @@
-import React from 'react';
+import { useEffect } from 'react';
 import { useModelStore } from '../../stores/modelStore';
-import { invoke } from '@tauri-apps/api/core';
+import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
 
 /**
  * Sección de Modelos para el BootstrapSplash.
  * Visible pero NO bloqueante (el usuario puede continuar sin interactuar).
  */
 export default function ModelsSplashSection() {
-  const { status, fetchStatus, copyToDedicated, isCopying } = useModelStore();
-  const [voiceStatus, setVoiceStatus] = React.useState<any>(null);
+  const status = useModelStore((s) => s.status);
+  const fetchStatus = useModelStore((s) => s.fetchStatus);
+  const copyToDedicated = useModelStore((s) => s.copyToDedicated);
+  const isCopying = useModelStore((s) => s.isCopying);
+  const { status: voiceStatus } = useVoiceStore();
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetchStatus().catch(() => {});
-    // Also surface the primary cloning model / k2-fsa prep (visible but non-blocking, educational)
-    (async () => {
-      try {
-        const vs = await invoke<any>("get_voice_status");
-        setVoiceStatus(vs);
-      } catch {}
-    })();
+    startVoiceStatusPolling();
   }, [fetchStatus]);
 
   const installed = status?.installed_models ?? 0;
   const total = status?.total_models ?? 0;
   const mode = status?.config.mode ?? 'shared';
 
-  const missingCritical = status?.models?.filter(m => 
+  const missingCritical = status?.models?.filter((m) =>
     !m.installed && (m.role === 'VoiceClone' || m.role === 'TTS')
   ).length ?? 0;
 
@@ -33,12 +30,11 @@ export default function ModelsSplashSection() {
     if (!status) return;
 
     const priority = ['k2-fsa/OmniVoice', 'k2-fsa/OmniVoice-TTS'];
-    const toCopy = priority.filter(id => 
-      status.models.some(m => m.repo_id === id && !m.installed)
+    const toCopy = priority.filter((id) =>
+      status.models.some((m) => m.repo_id === id && !m.installed)
     );
 
     if (toCopy.length === 0) {
-      alert("Los modelos recomendados ya están disponibles.");
       return;
     }
 
@@ -56,8 +52,8 @@ export default function ModelsSplashSection() {
             </span>
           </div>
           <div className="text-xs text-white/60 mt-0.5">
-            {total > 0 
-              ? `${installed} de ${total} modelos disponibles` 
+            {total > 0
+              ? `${installed} de ${total} modelos disponibles`
               : 'Cargando información de modelos...'}
           </div>
         </div>
@@ -75,7 +71,7 @@ export default function ModelsSplashSection() {
 
       <div className="text-[11px] text-white/70 leading-snug">
         {mode === 'shared' && missingCritical > 0 && (
-          <>Te faltan <span className="text-orange-400 font-medium">{missingCritical} modelos importantes</span> (VoiceClone/TTS). 
+          <>Te faltan <span className="text-orange-400 font-medium">{missingCritical} modelos importantes</span> (VoiceClone/TTS).
           Copiarlos te da independencia de OmniVoice.</>
         )}
         {mode === 'shared' && missingCritical === 0 && (

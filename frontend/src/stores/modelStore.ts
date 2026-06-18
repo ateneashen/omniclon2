@@ -2,12 +2,24 @@ import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { ModelStatus, ModelConfig, ModelInfo } from '../types';
 
+export interface ModelCatalog {
+  models: ModelInfo[];
+  total_models: number;
+  installed_models: number;
+}
+
+export interface CopyResult {
+  copied: string[];
+  failed: string[];
+  message?: string;
+}
+
 interface ModelState {
   // State
   status: ModelStatus | null;
-  catalog: any | null;           // Catálogo oficial + estado de instalación
+  catalog: ModelCatalog | null;
   isLoading: boolean;
-  isCopying: boolean;            // Copia en progreso (elegante para UX)
+  isCopying: boolean;
   error: string | null;
   lastFetched: number | null;
 
@@ -16,8 +28,8 @@ interface ModelState {
   fetchCatalog: () => Promise<void>;
   fetchConfig: () => Promise<ModelConfig | null>;
   switchMode: (mode: 'shared' | 'dedicated') => Promise<boolean>;
-  copyToDedicated: (repoIds: string[]) => Promise<any>;
-  getLastCopyResult: () => any;
+  copyToDedicated: (repoIds: string[]) => Promise<CopyResult | null>;
+  getLastCopyResult: () => CopyResult | null;
   refresh: () => Promise<void>;
 
   // Helpers
@@ -52,7 +64,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
   },
 
-  // Devuelve el último resultado de copia (útil después de refrescar)
   getLastCopyResult: () => {
     return get().status?.last_copy_result ?? null;
   },
@@ -61,7 +72,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      const result = await invoke<any>('get_model_catalog');
+      const result = await invoke<ModelCatalog>('get_model_catalog');
       set({
         catalog: result,
         isLoading: false,
@@ -80,8 +91,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
     set({ isLoading: true, isCopying: true, error: null });
 
     try {
-      const result = await invoke<any>('copy_models_to_dedicated', { repoIds });
-      // Refrescamos para actualizar installed + copy_in_progress
+      const result = await invoke<CopyResult>('copy_models_to_dedicated', { repoIds });
       await get().fetchStatus();
       set({ isLoading: false, isCopying: false });
       return result;
@@ -108,10 +118,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
 
     try {
       await invoke<ModelConfig>('switch_model_mode', { mode });
-
-      // Refrescar el estado completo después del cambio
       await get().fetchStatus();
-
       set({ isLoading: false });
       return true;
     } catch (err) {
@@ -126,7 +133,6 @@ export const useModelStore = create<ModelState>((set, get) => ({
     await get().fetchStatus();
   },
 
-  // Helpers
   getActiveModels: () => {
     const { status } = get();
     return status?.models ?? [];
@@ -135,9 +141,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
   getMissingCriticalModels: () => {
     const { status } = get();
     if (!status) return [];
-    // Por ahora consideramos "críticos" los de VoiceClone y TTS
     return status.models.filter(
-      m => !m.installed && (m.role === 'VoiceClone' || m.role === 'TTS')
+      (m) => !m.installed && (m.role === 'VoiceClone' || m.role === 'TTS')
     );
   },
 

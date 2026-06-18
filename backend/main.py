@@ -24,7 +24,7 @@ if _backend_dir not in sys.path:
 # Model Management (Fase B1)
 # ============================================================
 from services.model_manager import ModelManager, ModelConfig
-from services.voice_cloning import VoiceCloningService, GenerationRequest
+from services.voice_cloning import VoiceCloningService, GenerationRequest, GenerationFromClipRequest
 
 # Se inicializa perezosamente en el lifespan usando OMNICLON2_DATA_DIR
 model_manager: ModelManager | None = None
@@ -185,6 +185,26 @@ async def generate_voice(payload: dict):
         return {
             "success": False,
             "error_message": f"Error procesando petición de generación: {str(e)}"
+        }
+
+
+@app.post("/generate_from_clip")
+async def generate_voice_from_clip(payload: dict):
+    """
+    Extracts the A-B segment from the active clip and generates cloned voice in one step.
+    This removes the need for a separate 'Export A-B reference' UI action.
+    """
+    if voice_cloning_service is None:
+        return {"success": False, "error_message": "VoiceCloningService no inicializado"}
+
+    try:
+        request = GenerationFromClipRequest(**payload)
+        result = voice_cloning_service.generate_from_clip(request)
+        return result.model_dump()
+    except Exception as e:
+        return {
+            "success": False,
+            "error_message": f"Error procesando generación desde clip: {str(e)}"
         }
 
 

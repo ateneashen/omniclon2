@@ -120,3 +120,11 @@ export interface BootstrapStatus {
   stage: string;
   message: string | null;
 }
+
+// Saved synthesis script (prompt) for re-use during the app session
+export interface ScriptItem {
+  id: string;
+  title: string;
+  text: string;
+  createdAt: number;
+}

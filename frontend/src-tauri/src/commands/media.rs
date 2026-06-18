@@ -76,15 +76,16 @@ pub async fn import_media(app: AppHandle, path: String) -> Result<serde_json::Va
 }
 
 /// Real waveform extraction using ffmpeg + downsampling.
-/// Produces ~2000 points suitable for timeline rendering.
+/// Produces an adaptive number of points suitable for timeline rendering,
+/// keeping memory and extraction time reasonable for very long videos.
 #[command]
-pub async fn extract_waveform(app: AppHandle, path: String) -> Result<serde_json::Value, String> {
+pub async fn extract_waveform(app: AppHandle, path: String, duration: f64) -> Result<serde_json::Value, String> {
     diagnostics::log_diagnostic(
         &app,
         "INFO",
         "Media",
         "Extracting real waveform",
-        Some(&format!("path={}", path)),
+        Some(&format!("path={} duration={:.1}s", path, duration)),
     );
 
     let app_data = app.path().app_local_data_dir().map_err(|e| e.to_string())?;
@@ -93,10 +94,22 @@ pub async fn extract_waveform(app: AppHandle, path: String) -> Result<serde_json
 
     let temp_wav = temp_dir.join(format!("wf_{}.wav", Uuid::new_v4()));
 
-    // Use ffmpeg via shell plugin (we can improve to direct call later)
+    // Adaptive sample rate: long videos don't need full 16 kHz resolution
+    // for a visual waveform. This keeps the temporary WAV small and fast to parse.
+    let sample_rate = if duration > 120.0 {
+        8000
+    } else if duration > 30.0 {
+        11025
+    } else {
+        16000
+    };
+
+    // Adaptive target points: ~2 points per second, clamped between 500 and 2000.
+    let target_points = ((duration * 2.0) as usize).clamp(500, 2000).max(1);
+
+    // Use ffmpeg via shell plugin
     let shell = app.shell();
 
-    // Extract mono 16kHz WAV
     let output = shell
         .command("ffmpeg")
         .args([
@@ -104,7 +117,7 @@ pub async fn extract_waveform(app: AppHandle, path: String) -> Result<serde_json
             "-i", &path,
             "-vn",
             "-acodec", "pcm_s16le",
-            "-ar", "16000",
+            "-ar", &sample_rate.to_string(),
             "-ac", "1",
             temp_wav.to_str().unwrap(),
         ])
@@ -118,7 +131,7 @@ pub async fn extract_waveform(app: AppHandle, path: String) -> Result<serde_json
     }
 
     // Parse WAV and downsample
-    let (samples, spec) = parse_wav_to_downsampled(&temp_wav, 2000)
+    let (samples, spec) = parse_wav_to_downsampled(&temp_wav, target_points)
         .map_err(|e| format!("Failed to parse waveform: {}", e))?;
 
     // Cleanup

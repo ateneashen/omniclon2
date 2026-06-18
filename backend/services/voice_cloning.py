@@ -16,7 +16,10 @@ from __future__ import annotations
 import base64
 import json
 import os
+import shutil
+import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +49,11 @@ class GenerationRequest(BaseModel):
     emotion: Optional[str] = None
     model_repo: Optional[str] = None
 
+    # Transcript of the reference audio. If provided, improves alignment.
+    # If omitted/empty, the backend will try to auto-transcribe with ASR,
+    # falling back to empty reference text if ASR is unavailable.
+    ref_text: Optional[str] = None
+
     # OmniVoice generation tuning options (the "tags" the user asked for)
     speed: float = 1.0
     num_step: int = 24
@@ -56,6 +64,27 @@ class GenerationRequest(BaseModel):
     instruct: Optional[str] = None          # Voice-design style instruction
     duration: Optional[float] = None        # Fixed output duration in seconds
     t_shift: Optional[float] = None         # Time-step shift (advanced)
+
+
+class GenerationFromClipRequest(BaseModel):
+    video_path: str
+    start_time: float
+    end_time: float
+    text: str
+
+    # Optional transcript of the A-B segment. Greatly improves text alignment.
+    ref_text: Optional[str] = None
+
+    # Same tuning options as GenerationRequest
+    speed: float = 1.0
+    num_step: int = 24
+    guidance_scale: float = 2.0
+    denoise: bool = True
+    postprocess_output: bool = True
+    language: Optional[str] = None
+    instruct: Optional[str] = None
+    duration: Optional[float] = None
+    t_shift: Optional[float] = None
 
 
 class GenerationResult(BaseModel):
@@ -198,6 +227,71 @@ class VoiceCloningService:
             model_used=model_used,
         )
 
+    def generate_from_clip(self, request: GenerationFromClipRequest) -> GenerationResult:
+        """Extract A-B segment from a video and generate cloned voice in one step."""
+        if not self._initialized:
+            self.initialize()
+
+        video_path = Path(request.video_path)
+        if not video_path.exists():
+            return GenerationResult(success=False, error_message="El video de origen no existe en disco.")
+
+        duration = request.end_time - request.start_time
+        if duration < 0.5:
+            return GenerationResult(success=False, error_message="La selección A-B es muy corta (mínimo 0.5 segundos).")
+        if duration > 20.0:
+            return GenerationResult(success=False, error_message="La selección A-B es muy larga (máximo 20 segundos).")
+        if duration > 10.0:
+            print(f"[VoiceCloningService] WARNING: A-B reference is {duration:.1f}s long. OmniVoice recommends 3-10s for best quality.")
+
+        temp_dir = PROJECT_ROOT / "data" / "temp"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        ref_path = temp_dir / f"ref_{request.start_time:.2f}_{request.end_time:.2f}_{uuid.uuid4()}.wav"
+
+        try:
+            cmd = [
+                "ffmpeg", "-y",
+                "-ss", str(request.start_time),
+                "-t", str(duration),
+                "-i", str(video_path),
+                "-vn",
+                "-acodec", "pcm_s16le",
+                "-ar", "24000",
+                "-ac", "1",
+                str(ref_path),
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            err = e.stderr.decode("utf-8", errors="ignore")[:500]
+            return GenerationResult(success=False, error_message=f"ffmpeg no pudo extraer el segmento: {err}")
+        except FileNotFoundError:
+            return GenerationResult(success=False, error_message="ffmpeg no está disponible en el PATH del backend.")
+
+        try:
+            gen_request = GenerationRequest(
+                reference_audio_path=str(ref_path),
+                text=request.text,
+                ref_text=request.ref_text,
+                speed=request.speed,
+                num_step=request.num_step,
+                guidance_scale=request.guidance_scale,
+                denoise=request.denoise,
+                postprocess_output=request.postprocess_output,
+                language=request.language,
+                instruct=request.instruct,
+                duration=request.duration,
+                t_shift=request.t_shift,
+            )
+            result = self.generate(gen_request)
+        finally:
+            try:
+                if ref_path.exists():
+                    ref_path.unlink()
+            except Exception:
+                pass
+
+        return result
+
     def is_ready(self) -> bool:
         return self._initialized
 
@@ -289,14 +383,30 @@ class VoiceCloningService:
 
             lang = request.language if request.language else self._detect_language(request.text)
 
+            # Determine reference text: user-provided > ASR auto-transcribe > empty string fallback.
+            ref_text_value: Optional[str] = None
+            if request.ref_text and request.ref_text.strip():
+                ref_text_value = request.ref_text.strip()
+                print(f"[VoiceCloningService] Using user-provided ref_text ({len(ref_text_value)} chars)")
+            else:
+                try:
+                    print("[VoiceCloningService] Attempting ASR auto-transcription of reference...")
+                    ref_text_value = self.real_omnivoice.create_voice_clone_prompt(
+                        request.reference_audio_path, ref_text=None
+                    ).ref_text
+                    print(f"[VoiceCloningService] ASR ref_text: {ref_text_value[:80]}...")
+                except Exception as asr_err:
+                    print(f"[VoiceCloningService] ASR failed ({asr_err}), using empty ref_text fallback.")
+                    ref_text_value = ""
+
             # PC-optimized generation settings:
-            # - ref_text="" avoids downloading Whisper from HF Hub (fully autonomous).
+            # - ref_text alignment greatly reduces dropped words / prefix omission.
             # - num_step=24 is a good speed/quality trade-off on RTX 3090.
             # - language hint improves prosody for Spanish content.
             generate_kwargs = {
                 "text": request.text,
                 "ref_audio": request.reference_audio_path,
-                "ref_text": "",
+                "ref_text": ref_text_value,
                 "language": lang,
                 "num_step": request.num_step,
                 "guidance_scale": request.guidance_scale,

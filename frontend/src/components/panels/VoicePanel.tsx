@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
@@ -16,6 +16,22 @@ interface GenerateResult {
 }
 
 const OPTIONS_STORAGE_KEY = 'omniclon2-generation-options';
+
+const NON_VERBAL_TAGS = [
+  '[laughter]',
+  '[sigh]',
+  '[confirmation-en]',
+  '[question-en]',
+  '[question-ah]',
+  '[question-oh]',
+  '[question-ei]',
+  '[question-yi]',
+  '[surprise-ah]',
+  '[surprise-oh]',
+  '[surprise-wa]',
+  '[surprise-yo]',
+  '[dissatisfaction-hnn]',
+];
 
 const DEFAULT_OPTIONS: GenerationOptions = {
   speed: 1.0,
@@ -70,13 +86,17 @@ export default function VoicePanel() {
   const setIsGenerating = useEditorStore((s) => s.setIsGenerating);
   const setLastGenerated = useEditorStore((s) => s.setLastGenerated);
 
-  const [text, setText] = useState('');
+  const text = useEditorStore((s) => s.voiceText);
+  const setText = useEditorStore((s) => s.setVoiceText);
+  const [refText, setRefText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [options, setOptions] = useState<GenerationOptions>(loadStoredOptions);
   const [optionMeta, setOptionMeta] = useState<GenerateOptionsResponse['options'] | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [exporting, setExporting] = useState(false);
   const { status: voiceStatus } = useVoiceStore();
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     startVoiceStatusPolling();
@@ -94,20 +114,59 @@ export default function VoicePanel() {
     storeOptions(next);
   };
 
-  const playReference = useCallback(async () => {
-    if (!currentVoiceReference) return;
+  const stopCurrentAudio = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current = null;
+    }
+  }, []);
+
+  const playAudio = useCallback(async (src: string) => {
+    stopCurrentAudio();
     try {
-      const bytes = await readFile(currentVoiceReference.audioPath);
-      const b64 = btoa(String.fromCharCode(...bytes));
-      const audio = new Audio(`data:audio/wav;base64,${b64}`);
+      const audio = new Audio(src);
+      audioRef.current = audio;
       await audio.play();
     } catch (err) {
-      setError('Could not play reference audio: ' + String(err));
+      setError('Playback failed: ' + String(err));
     }
-  }, [currentVoiceReference]);
+  }, [stopCurrentAudio]);
+
+  const insertTag = useCallback((tag: string) => {
+    const el = textAreaRef.current;
+    if (!el) {
+      setText(text ? `${text} ${tag}` : tag);
+      return;
+    }
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? text.length;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    const needsSpaceBefore = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n');
+    const needsSpaceAfter = after.length > 0 && !after.startsWith(' ') && !after.startsWith('\n');
+    const newText =
+      before +
+      (needsSpaceBefore ? ' ' : '') +
+      tag +
+      (needsSpaceAfter ? ' ' : '') +
+      after;
+    setText(newText);
+    const newCursor = start + (needsSpaceBefore ? 1 : 0) + tag.length + (needsSpaceAfter ? 1 : 0);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(newCursor, newCursor);
+    });
+  }, [text, setText]);
+
+  const playReference = useCallback(async () => {
+    if (!currentVoiceReference) return;
+    await playAudio(convertFileSrc(currentVoiceReference.audioPath));
+  }, [currentVoiceReference, playAudio]);
 
   const handleExportAB = useCallback(async () => {
     setError(null);
+    console.log('[VoicePanel] Export A-B clicked', { activeClipId, region, clipsCount: clips.length });
     if (!activeClipId) {
       setError('No clip selected');
       return;
@@ -119,20 +178,21 @@ export default function VoicePanel() {
     }
 
     const duration = region.end - region.start;
-    if (duration < 3) {
-      setError('La referencia A-B es muy corta. Recomendamos 4-10 segundos de habla clara.');
+    console.log('[VoicePanel] A/B duration', duration);
+    if (duration < 0.5) {
+      setError('La referencia A-B es muy corta. Selecciona al menos 0.5 segundos.');
       return;
     }
-    if (duration > 12) {
-      setError('La referencia es muy larga. Usa 4-10 segundos de habla continua para mejor calidad.');
+    if (duration > 20) {
+      setError('La referencia es muy larga. Usa como máximo 20 segundos.');
       return;
     }
 
     try {
       const outPath = await invoke<string>('extract_segment', {
         path: clip.path,
-        start_time: region.start,
-        end_time: region.end,
+        startTime: region.start,
+        endTime: region.end,
       });
 
       const voiceRef: VoiceReference = {
@@ -144,8 +204,11 @@ export default function VoicePanel() {
       };
 
       setCurrentVoiceReference(voiceRef);
+      console.log('[VoicePanel] Reference exported', voiceRef);
     } catch (err) {
-      setError('Export failed: ' + String(err));
+      const msg = 'Export failed: ' + String(err);
+      console.error('[VoicePanel]', msg);
+      setError(msg);
     }
   }, [activeClipId, clips, region, setCurrentVoiceReference]);
 
@@ -159,6 +222,9 @@ export default function VoicePanel() {
       denoise: options.denoise,
       postprocess_output: options.postprocess_output,
     };
+    if (refText.trim()) {
+      payload.ref_text = refText.trim();
+    }
     if (options.language && options.language !== 'auto') {
       payload.language = options.language;
     }
@@ -172,14 +238,10 @@ export default function VoicePanel() {
       payload.t_shift = Number(options.t_shift);
     }
     return payload;
-  }, [currentVoiceReference, text, options]);
+  }, [currentVoiceReference, text, refText, options]);
 
   const handleGenerate = useCallback(async () => {
     setError(null);
-    if (!currentVoiceReference) {
-      setError('Primero exporta una referencia A-B desde el timeline.');
-      return;
-    }
     const trimmed = text.trim();
     if (!trimmed) {
       setError('Escribe el texto a generar.');
@@ -188,19 +250,58 @@ export default function VoicePanel() {
 
     setIsGenerating(true);
     try {
-      const payload = buildGeneratePayload();
-      const result = await invoke<GenerateResult>('generate', payload);
+      let result: GenerateResult;
+
+      if (currentVoiceReference) {
+        // Use an already-exported reference file
+        const payload = buildGeneratePayload();
+        result = await invoke<GenerateResult>('generate', { payload });
+      } else {
+        // Extract A-B directly from the active clip and generate in one step
+        const clip = clips.find((c) => c.id === activeClipId);
+        if (!clip) {
+          setError('No hay un clip activo seleccionado.');
+          setIsGenerating(false);
+          return;
+        }
+        const duration = region.end - region.start;
+        if (duration < 1) {
+          setError('La selección A-B es muy corta. Selecciona al menos 1 segundo.');
+          setIsGenerating(false);
+          return;
+        }
+        if (duration > 20) {
+          setError('La selección A-B es muy larga. Usa como máximo 20 segundos.');
+          setIsGenerating(false);
+          return;
+        }
+        const payload = {
+          video_path: clip.path,
+          start_time: region.start,
+          end_time: region.end,
+          text: trimmed,
+          ...(refText.trim() ? { ref_text: refText.trim() } : {}),
+          speed: options.speed,
+          num_step: options.num_step,
+          guidance_scale: options.guidance_scale,
+          denoise: options.denoise,
+          postprocess_output: options.postprocess_output,
+          ...(options.language && options.language !== 'auto' ? { language: options.language } : {}),
+          ...(options.instruct.trim() ? { instruct: options.instruct.trim() } : {}),
+          ...(options.duration !== '' && Number(options.duration) > 0 ? { duration: Number(options.duration) } : {}),
+          ...(options.t_shift !== '' && Number(options.t_shift) >= 0 ? { t_shift: Number(options.t_shift) } : {}),
+        };
+        result = await invoke<GenerateResult>('generate_from_clip', { payload });
+      }
 
       if (result.success && result.audio_base64) {
         const info = `${result.model_used || 'Optimized for this PC'} • ${(result.duration_seconds || 0).toFixed(2)}s`;
         setLastGenerated(result.audio_base64, result.output_path || null, info);
-        const audio = new Audio(`data:audio/wav;base64,${result.audio_base64}`);
-        await audio.play();
+        await playAudio(`data:audio/wav;base64,${result.audio_base64}`);
       } else if (result.success && result.output_path) {
         const info = `${result.model_used || ''} • ${(result.duration_seconds || 0).toFixed(2)}s`;
         setLastGenerated(null, result.output_path, info);
-        const audio = new Audio(convertFileSrc(result.output_path));
-        await audio.play();
+        await playAudio(convertFileSrc(result.output_path));
       } else {
         setError('Generación fallida: ' + (result.error_message || 'Error desconocido'));
       }
@@ -209,18 +310,16 @@ export default function VoicePanel() {
     } finally {
       setIsGenerating(false);
     }
-  }, [currentVoiceReference, text, options, setIsGenerating, setLastGenerated, buildGeneratePayload]);
+  }, [currentVoiceReference, text, refText, options, activeClipId, clips, region, setIsGenerating, setLastGenerated, buildGeneratePayload, playAudio]);
 
   const playGenerated = useCallback(() => {
     const state = useEditorStore.getState();
     if (state.lastGeneratedAudio) {
-      const audio = new Audio(`data:audio/wav;base64,${state.lastGeneratedAudio}`);
-      audio.play().catch((err) => setError('Playback failed: ' + String(err)));
+      playAudio(`data:audio/wav;base64,${state.lastGeneratedAudio}`);
     } else if (state.lastGeneratedPath) {
-      const audio = new Audio(convertFileSrc(state.lastGeneratedPath));
-      audio.play().catch((err) => setError('Playback failed: ' + String(err)));
+      playAudio(convertFileSrc(state.lastGeneratedPath));
     }
-  }, []);
+  }, [playAudio]);
 
   const downloadGenerated = useCallback(() => {
     const state = useEditorStore.getState();
@@ -286,6 +385,18 @@ export default function VoicePanel() {
       </div>
 
       <div className="flex-1 flex flex-col text-xs min-h-0 overflow-auto">
+        {/* TTS / Cloning Model selector (currently OmniVoice is the quality default) */}
+        <div className="mb-3 p-2 bg-[#1a1a1a] border border-white/10 rounded">
+          <div className="text-[10px] text-white/50 mb-1">Cloning Model</div>
+          <div className="flex items-center justify-between">
+            <span className="text-emerald-300 font-medium">k2-fsa / OmniVoice</span>
+            <span className="text-[9px] text-white/40">máxima calidad</span>
+          </div>
+          <div className="text-[9px] text-white/40 mt-1">
+            Modelo principal de clonación zero-shot. Se usa automáticamente para todas las generaciones.
+          </div>
+        </div>
+
         {/* Voice Reference */}
         <div className="text-white/60 mb-1">
           Voice Reference (A/B){' '}
@@ -321,20 +432,39 @@ export default function VoicePanel() {
               </div>
             </div>
           ) : (
-            <div className="text-orange-400">
-              No reference yet.
-              <br />
-              Use A/B in the timeline and export.
-            </div>
+            <>
+              <div className="text-white/60 mb-1">A/B segment</div>
+              {!activeClipId ? (
+                <div className="text-orange-400">No active clip.</div>
+              ) : (
+                <>
+                  <div className="text-[10px] text-white/40">
+                    {region.start.toFixed(2)}s – {region.end.toFixed(2)}s
+                    {' '}
+                    ({(region.end - region.start).toFixed(2)}s)
+                  </div>
+                  {region.end - region.start >= 0.5 && region.end - region.start <= 20 ? (
+                    <div className="text-emerald-400 text-[10px]">✓ Ready to generate</div>
+                  ) : (
+                    <div className="text-orange-400 text-[10px]">
+                      {region.end - region.start < 0.5
+                        ? 'Select at least 0.5 seconds.'
+                        : 'Selection too long (max 20 s).'}
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           )}
         </div>
 
         <button
           onClick={handleExportAB}
           disabled={!activeClipId}
-          className="w-full mb-3 px-3 py-1.5 bg-[#00b4d8] text-black text-xs font-medium rounded hover:bg-[#0099b8] disabled:opacity-50 transition"
+          className="w-full mb-3 px-3 py-1 bg-white/10 text-white/70 text-[10px] rounded hover:bg-white/15 disabled:opacity-50 transition"
+          title="Export the A-B segment as a separate WAV file (advanced)"
         >
-          Export A-B Segment as Voice Reference
+          Export A-B reference manually
         </button>
 
         {/* Voice Tuning */}
@@ -482,19 +612,53 @@ export default function VoicePanel() {
           )}
         </div>
 
+        {/* Optional reference transcript */}
+        <div className="mb-3">
+          <div className="text-white/60 mb-1 text-xs flex items-center justify-between">
+            <span>Reference transcript (optional)</span>
+            <span className="text-[9px] text-white/40">improves alignment</span>
+          </div>
+          <textarea
+            value={refText}
+            onChange={(e) => setRefText(e.target.value)}
+            placeholder="Escribe aquí lo que dice exactamente el segmento A-B seleccionado..."
+            className="w-full min-h-[50px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-1 resize-y focus:outline-none focus:border-[#00b4d8]/50"
+          />
+          <div className="text-[9px] text-white/40">
+            Si lo dejas vacío, el backend intentará transcribirlo automáticamente (requiere ASR).
+          </div>
+        </div>
+
         {/* Text + Generate */}
         <div className="flex-1 flex flex-col min-h-0">
           <div className="text-white/60 mb-1">Text to Synthesize</div>
           <textarea
+            ref={textAreaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Escribe aquí el texto que quieres que diga la voz clonada..."
             className="flex-1 min-h-[80px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-2 resize-y focus:outline-none focus:border-[#00b4d8]/50"
           />
 
+          <div className="mb-2">
+            <div className="text-[10px] text-white/40 mb-1">Non-verbal tags</div>
+            <div className="flex flex-wrap gap-1">
+              {NON_VERBAL_TAGS.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => insertTag(tag)}
+                  className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[9px] rounded hover:bg-white/20 hover:text-white transition"
+                  title={`Insert ${tag}`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
             onClick={handleGenerate}
-            disabled={!currentVoiceReference || isGenerating}
+            disabled={isGenerating || !activeClipId || region.end - region.start < 0.5}
             className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium rounded transition"
           >
             {isGenerating ? 'Generating…' : 'Generate Cloned Voice'}
@@ -548,7 +712,7 @@ export default function VoicePanel() {
       </div>
 
       <div className="text-[10px] text-white/30 mt-2 pt-2 border-t border-white/10">
-        A/B on video → export reference (4-10s clear speech) → tune → Generate Cloned Voice
+        1. Select A/B on video · 2. (Optional) write what the A-B segment says · 3. Type target text · 4. Generate
       </div>
     </div>
   );

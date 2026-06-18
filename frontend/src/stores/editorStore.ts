@@ -21,7 +21,11 @@ interface EditorState {
   currentVoiceReference: VoiceReference | null;
   isGenerating: boolean;
   lastGeneratedAudio: string | null; // base64 for the last generation result
+  lastGeneratedPath: string | null; // path to generated audio file
   lastGeneratedInfo: string | null; // e.g. model used, text
+
+  // Voice synthesis text shared between panels
+  voiceText: string;
 
   // Actions
   setActiveClip: (id: string | null) => void;
@@ -39,7 +43,8 @@ interface EditorState {
   setCurrentVoiceReference: (ref: VoiceReference | null) => void;
 
   setIsGenerating: (generating: boolean) => void;
-  setLastGenerated: (audioBase64: string | null, info: string | null) => void;
+  setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => void;
+  setVoiceText: (text: string) => void;
 
   // A/B helpers
   setMarkA: (time: number) => void;
@@ -61,7 +66,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   currentVoiceReference: null,
   isGenerating: false,
   lastGeneratedAudio: null,
+  lastGeneratedPath: null,
   lastGeneratedInfo: null,
+  voiceText: '',
 
   setActiveClip: (id) => set({ activeClipId: id }),
   
@@ -69,7 +76,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     clips: [...state.clips, clip],
     activeClipId: clip.id,
     duration: clip.duration,
-    region: { start: 0, end: clip.duration },
+    // Default A/B to the first 5 seconds so long clips don't start with an
+    // invalid full-length selection.
+    region: { start: 0, end: Math.min(clip.duration, 5.0) },
   })),
 
   removeClip: (id) => set((state) => {
@@ -103,7 +112,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setIsGenerating: (generating: boolean) => set({ isGenerating: generating }),
 
-  setLastGenerated: (audioBase64: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedInfo: info }),
+  setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedPath: outputPath, lastGeneratedInfo: info }),
+  setVoiceText: (text: string) => set({ voiceText: text }),
 
   setMarkA: (time) => {
     const { region } = get();
