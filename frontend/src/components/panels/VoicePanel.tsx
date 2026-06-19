@@ -4,7 +4,9 @@ import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useEditorStore } from '../../stores/editorStore';
 import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
-import { VoiceReference, GenerationOptions, GenerateOptionsResponse } from '../../types';
+import { VoiceReference, GenerationOptions, GenerateOptionsResponse, SubtitleTrack, WaveformData } from '../../types';
+import CollapsibleSection from '../ui/CollapsibleSection';
+import TextImportModal from '../ui/TextImportModal';
 
 interface GenerateResult {
   success: boolean;
@@ -88,12 +90,24 @@ export default function VoicePanel() {
 
   const text = useEditorStore((s) => s.voiceText);
   const setText = useEditorStore((s) => s.setVoiceText);
-  const [refText, setRefText] = useState('');
+  const refText = useEditorStore((s) => s.voiceRefText);
+  const setRefText = useEditorStore((s) => s.setVoiceRefText);
+  const subtitleTracks = useEditorStore((s) => s.subtitleTracks);
+  const selectedSubtitleTrack = useEditorStore((s) => s.selectedSubtitleTrack);
+  const setSubtitleTracks = useEditorStore((s) => s.setSubtitleTracks);
+  const setSelectedSubtitleTrack = useEditorStore((s) => s.setSelectedSubtitleTrack);
+  const audioTracks = useEditorStore((s) => s.audioTracks);
+  const selectedAudioTrack = useEditorStore((s) => s.selectedAudioTrack);
+  const setSelectedAudioTrack = useEditorStore((s) => s.setSelectedAudioTrack);
+  const setWaveform = useEditorStore((s) => s.setWaveform);
+  const activeAudioLanguage = audioTracks.find((t) => t.index === selectedAudioTrack)?.language;
   const [error, setError] = useState<string | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [options, setOptions] = useState<GenerationOptions>(loadStoredOptions);
   const [optionMeta, setOptionMeta] = useState<GenerateOptionsResponse['options'] | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const { status: voiceStatus } = useVoiceStore();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
@@ -101,6 +115,39 @@ export default function VoicePanel() {
   useEffect(() => {
     startVoiceStatusPolling();
   }, []);
+
+  useEffect(() => {
+    if (!activeClipId) {
+      setSubtitleTracks([]);
+      setSelectedSubtitleTrack(null);
+      return;
+    }
+    const clip = clips.find((c) => c.id === activeClipId);
+    if (!clip) return;
+    invoke<{ success: boolean; tracks?: SubtitleTrack[]; error?: string }>('subtitle_tracks', {
+      payload: { path: clip.path },
+    })
+      .then((res) => {
+        if (res.success && res.tracks) {
+          setSubtitleTracks(res.tracks);
+          const textCodecs = new Set(['subrip', 'srt', 'ass', 'ssa', 'webvtt', 'mov_text']);
+          const textTracks = res.tracks.filter((t) => textCodecs.has(t.codec_name.toLowerCase()));
+          const matched = activeAudioLanguage
+            ? textTracks.find((t) => t.language.toLowerCase() === activeAudioLanguage.toLowerCase())
+            : undefined;
+          const firstText = matched || textTracks[0];
+          setSelectedSubtitleTrack(firstText ? firstText.index : null);
+        } else {
+          setSubtitleTracks([]);
+          setSelectedSubtitleTrack(null);
+        }
+      })
+      .catch((err) => {
+        console.error('[VoicePanel] subtitle_tracks failed', err);
+        setSubtitleTracks([]);
+        setSelectedSubtitleTrack(null);
+      });
+  }, [activeClipId, clips, setSubtitleTracks, setSelectedSubtitleTrack]);
 
   useEffect(() => {
     invoke<GenerateOptionsResponse>('get_generate_options')
@@ -193,6 +240,7 @@ export default function VoicePanel() {
         path: clip.path,
         startTime: region.start,
         endTime: region.end,
+        audioTrackIndex: selectedAudioTrack ?? undefined,
       });
 
       const voiceRef: VoiceReference = {
@@ -211,6 +259,95 @@ export default function VoicePanel() {
       setError(msg);
     }
   }, [activeClipId, clips, region, setCurrentVoiceReference]);
+
+  const handleExtractSubtitles = useCallback(async () => {
+    setError(null);
+    if (!activeClipId) {
+      setError('No clip selected');
+      return;
+    }
+    const clip = clips.find((c) => c.id === activeClipId);
+    if (!clip) {
+      setError('Selected clip not found');
+      return;
+    }
+    try {
+      const result = await invoke<{ success: boolean; text?: string; error?: string }>('extract_subtitles', {
+        payload: {
+          path: clip.path,
+          startTime: region.start,
+          endTime: region.end,
+          trackIndex: selectedSubtitleTrack ?? undefined,
+        },
+      });
+      if (result.success && result.text !== undefined) {
+        setRefText(result.text);
+      } else {
+        setError('Subtitle extraction failed: ' + (result.error || 'No subtitles found'));
+      }
+    } catch (err) {
+      setError('Subtitle extraction error: ' + String(err));
+    }
+  }, [activeClipId, clips, region, setRefText]);
+
+  const handleTranscribe = useCallback(async () => {
+    setError(null);
+    if (!activeClipId) {
+      setError('No clip selected');
+      return;
+    }
+    const clip = clips.find((c) => c.id === activeClipId);
+    if (!clip) {
+      setError('Selected clip not found');
+      return;
+    }
+    const duration = region.end - region.start;
+    if (duration <= 0) {
+      setError('Invalid A-B range');
+      return;
+    }
+    if (duration > 120) {
+      setError('ASR max segment is 120 seconds');
+      return;
+    }
+    setIsTranscribing(true);
+    try {
+      const result = await invoke<{ success: boolean; text?: string; error?: string }>('transcribe_audio', {
+        payload: {
+          path: clip.path,
+          startTime: region.start,
+          endTime: region.end,
+          language: options.language && options.language !== 'auto' ? options.language : undefined,
+          model: 'base',
+        },
+      });
+      if (result.success && result.text !== undefined) {
+        setRefText(result.text);
+      } else {
+        setError('ASR transcription failed: ' + (result.error || 'No text returned'));
+      }
+    } catch (err) {
+      setError('ASR transcription error: ' + String(err));
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [activeClipId, clips, region, setRefText, options.language]);
+
+  const handleAudioTrackChange = useCallback(async (index: number | null) => {
+    setSelectedAudioTrack(index);
+    const clip = clips.find((c) => c.id === activeClipId);
+    if (!clip || index === null) return;
+    try {
+      const wf = await invoke<WaveformData>('extract_waveform', {
+        path: clip.path,
+        duration: clip.duration,
+        audioTrackIndex: index,
+      });
+      setWaveform(wf);
+    } catch (err) {
+      console.error('[VoicePanel] Failed to re-extract waveform for audio track', err);
+    }
+  }, [activeClipId, clips, setSelectedAudioTrack, setWaveform]);
 
   const buildGeneratePayload = useCallback((): Record<string, any> => {
     const payload: Record<string, any> = {
@@ -384,9 +521,9 @@ export default function VoicePanel() {
         <span className={`text-[10px] px-1.5 py-0.5 rounded border ${k2Badge.color}`}>{k2Badge.text}</span>
       </div>
 
-      <div className="flex-1 flex flex-col text-xs min-h-0 overflow-auto">
+      <div className="flex-1 flex flex-col text-xs min-h-0 overflow-auto gap-3">
         {/* TTS / Cloning Model selector (currently OmniVoice is the quality default) */}
-        <div className="mb-3 p-2 bg-[#1a1a1a] border border-white/10 rounded">
+        <div className="p-2 bg-[#1a1a1a] border border-white/10 rounded">
           <div className="text-[10px] text-white/50 mb-1">Cloning Model</div>
           <div className="flex items-center justify-between">
             <span className="text-emerald-300 font-medium">k2-fsa / OmniVoice</span>
@@ -397,13 +534,11 @@ export default function VoicePanel() {
           </div>
         </div>
 
-        {/* Voice Reference */}
-        <div className="text-white/60 mb-1">
-          Voice Reference (A/B){' '}
-          <span className="text-[9px] text-white/40">(4-10s recommended)</span>
-        </div>
-
-        <div className="mb-3 p-2 bg-[#1a1a1a] border border-white/10 rounded">
+        {/* Voice Reference (A/B) */}
+        <CollapsibleSection
+          title={<>Voice Reference (A/B) <span className="text-[9px] text-white/40 font-normal">(4-10s recommended)</span></>}
+          defaultOpen
+        >
           {currentVoiceReference ? (
             <div>
               <div className="text-emerald-400 font-medium">
@@ -456,24 +591,114 @@ export default function VoicePanel() {
               )}
             </>
           )}
+        </CollapsibleSection>
+
+        {/* Reference transcript */}
+        <CollapsibleSection title={<>Reference transcript <span className="text-[9px] text-white/40 font-normal">(optional)</span></>} defaultOpen={false}>
+          <textarea
+            value={refText}
+            onChange={(e) => setRefText(e.target.value)}
+            placeholder="Escribe aquí lo que dice exactamente el segmento A-B seleccionado..."
+            className="w-full min-h-[50px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-1 resize-y focus:outline-none focus:border-[#00b4d8]/50"
+          />
+          <div className="flex flex-col gap-1.5 mt-1.5">
+            {audioTracks.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-white/40">Audio:</span>
+                <select
+                  value={selectedAudioTrack ?? ''}
+                  onChange={(e) => handleAudioTrackChange(e.target.value ? Number(e.target.value) : null)}
+                  className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded px-1.5 py-0.5 text-white text-[10px] focus:outline-none focus:border-[#00b4d8]/50"
+                >
+                  {audioTracks.map((t) => (
+                    <option key={t.index} value={t.index} className="bg-[#1a1a1a]">
+                      [{t.language}] {t.title || t.codec_name} {t.channels > 0 && `• ${t.channels}ch`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {subtitleTracks.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] text-white/40">Subtitles:</span>
+                <select
+                  value={selectedSubtitleTrack ?? ''}
+                  onChange={(e) => setSelectedSubtitleTrack(e.target.value ? Number(e.target.value) : null)}
+                  className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded px-1.5 py-0.5 text-white text-[10px] focus:outline-none focus:border-[#00b4d8]/50"
+                >
+                  {subtitleTracks.map((t) => (
+                    <option key={t.index} value={t.index} className="bg-[#1a1a1a]">
+                      [{t.language}] {t.title || t.codec_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <div className="text-[9px] text-white/40">
+                Si lo dejas vacío, el backend intentará transcribirlo automáticamente (requiere ASR).
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  onClick={handleExtractSubtitles}
+                  disabled={!activeClipId || subtitleTracks.length === 0}
+                  className="text-[10px] px-2 py-0.5 bg-[#00b4d8]/20 text-[#00b4d8] rounded hover:bg-[#00b4d8]/30 disabled:opacity-50 transition"
+                  title="Fill transcript from embedded subtitles"
+                >
+                  Extract from subtitles
+                </button>
+                <button
+                  onClick={handleTranscribe}
+                  disabled={!activeClipId || isTranscribing}
+                  className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded hover:bg-purple-500/30 disabled:opacity-50 transition"
+                  title="Transcribe the A-B segment with OpenAI Whisper (requires model download on first use)"
+                >
+                  {isTranscribing ? 'Transcribing…' : 'Transcribe (Whisper)'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </CollapsibleSection>
+
+        {/* Text to Synthesize */}
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-white/60">Text to Synthesize</span>
+            <button
+              onClick={() => setIsImportModalOpen(true)}
+              className="text-[10px] px-2 py-0.5 bg-white/10 text-white/60 rounded hover:bg-white/15 hover:text-white transition"
+              title="Import text from CSV or Excel"
+            >
+              Import CSV/Excel…
+            </button>
+          </div>
+          <textarea
+            ref={textAreaRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Escribe aquí el texto que quieres que diga la voz clonada..."
+            className="flex-1 min-h-[80px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-2 resize-y focus:outline-none focus:border-[#00b4d8]/50"
+          />
+
+          <div className="mb-2">
+            <div className="text-[10px] text-white/40 mb-1">Non-verbal tags</div>
+            <div className="flex flex-wrap gap-1">
+              {NON_VERBAL_TAGS.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => insertTag(tag)}
+                  className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[9px] rounded hover:bg-white/20 hover:text-white transition"
+                  title={`Insert ${tag}`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <button
-          onClick={handleExportAB}
-          disabled={!activeClipId}
-          className="w-full mb-3 px-3 py-1 bg-white/10 text-white/70 text-[10px] rounded hover:bg-white/15 disabled:opacity-50 transition"
-          title="Export the A-B segment as a separate WAV file (advanced)"
-        >
-          Export A-B reference manually
-        </button>
-
         {/* Voice Tuning */}
-        <div className="mb-3 p-2 bg-[#1a1a1a] border border-white/10 rounded">
-          <div className="text-white/60 mb-2 flex items-center justify-between">
-            <span>Voice Tuning</span>
-            <span className="text-[9px] text-white/40">OmniVoice options</span>
-          </div>
-
+        <CollapsibleSection title="Voice Tuning" defaultOpen={false}>
           <div className="space-y-2">
             <label className="block">
               <span className="text-[10px] text-white/50 flex justify-between">
@@ -610,106 +835,78 @@ export default function VoicePanel() {
               </div>
             </div>
           )}
+        </CollapsibleSection>
+
+        {/* Export A-B */}
+        <button
+          onClick={handleExportAB}
+          disabled={!activeClipId}
+          className="w-full px-3 py-1 bg-white/10 text-white/70 text-[10px] rounded hover:bg-white/15 disabled:opacity-50 transition"
+          title="Export the A-B segment as a separate WAV file (advanced)"
+        >
+          Export A-B reference manually
+        </button>
+
+        {/* Generate */}
+        <button
+          onClick={handleGenerate}
+          disabled={isGenerating || !activeClipId || region.end - region.start < 0.5}
+          className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium rounded transition"
+        >
+          {isGenerating ? 'Generating…' : 'Generate Cloned Voice'}
+        </button>
+
+        {error && (
+          <div className="text-[10px] text-red-300 bg-red-950/30 border border-red-500/30 rounded p-2">
+            {error}
+          </div>
+        )}
+
+        <div className="text-[9px] text-emerald-400/70 text-center">
+          Uses your local k2-fsa_OmniVoice assets.
         </div>
 
-        {/* Optional reference transcript */}
-        <div className="mb-3">
-          <div className="text-white/60 mb-1 text-xs flex items-center justify-between">
-            <span>Reference transcript (optional)</span>
-            <span className="text-[9px] text-white/40">improves alignment</span>
-          </div>
-          <textarea
-            value={refText}
-            onChange={(e) => setRefText(e.target.value)}
-            placeholder="Escribe aquí lo que dice exactamente el segmento A-B seleccionado..."
-            className="w-full min-h-[50px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-1 resize-y focus:outline-none focus:border-[#00b4d8]/50"
-          />
-          <div className="text-[9px] text-white/40">
-            Si lo dejas vacío, el backend intentará transcribirlo automáticamente (requiere ASR).
-          </div>
-        </div>
-
-        {/* Text + Generate */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="text-white/60 mb-1">Text to Synthesize</div>
-          <textarea
-            ref={textAreaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Escribe aquí el texto que quieres que diga la voz clonada..."
-            className="flex-1 min-h-[80px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-2 resize-y focus:outline-none focus:border-[#00b4d8]/50"
-          />
-
-          <div className="mb-2">
-            <div className="text-[10px] text-white/40 mb-1">Non-verbal tags</div>
-            <div className="flex flex-wrap gap-1">
-              {NON_VERBAL_TAGS.map((tag) => (
-                <button
-                  key={tag}
-                  onClick={() => insertTag(tag)}
-                  className="px-1.5 py-0.5 bg-white/10 text-white/60 text-[9px] rounded hover:bg-white/20 hover:text-white transition"
-                  title={`Insert ${tag}`}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating || !activeClipId || region.end - region.start < 0.5}
-            className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium rounded transition"
-          >
-            {isGenerating ? 'Generating…' : 'Generate Cloned Voice'}
-          </button>
-
-          {error && (
-            <div className="mt-2 text-[10px] text-red-300 bg-red-950/30 border border-red-500/30 rounded p-2">
-              {error}
-            </div>
-          )}
-
-          <div className="text-[9px] text-emerald-400/70 mt-1.5 text-center">
-            Uses your local k2-fsa_OmniVoice assets.
-          </div>
-
-          {(lastGeneratedAudio || lastGeneratedPath) && (
-            <div className="mt-3 p-2 bg-emerald-950/30 border border-emerald-600/50 rounded text-[10px]">
-              <div className="truncate">Last generated: {lastGeneratedInfo}</div>
-              {lastGeneratedPath && (
-                <div className="text-white/40 truncate mt-0.5" title={lastGeneratedPath}>
-                  {lastGeneratedPath}
-                </div>
-              )}
-              <div className="flex gap-1 mt-1">
-                <button
-                  onClick={playGenerated}
-                  className="px-2 py-0.5 bg-emerald-600 text-white text-[10px] rounded hover:bg-emerald-700 transition"
-                  aria-label="Play generated voice"
-                >
-                  ▶ Play
-                </button>
-                <button
-                  onClick={downloadGenerated}
-                  className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition"
-                  aria-label="Download generated voice"
-                >
-                  ⬇ Download
-                </button>
-                <button
-                  onClick={exportGenerated}
-                  disabled={exporting}
-                  className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition disabled:opacity-50"
-                  aria-label="Export generated voice"
-                >
-                  {exporting ? 'Saving…' : 'Save as…'}
-                </button>
+        {(lastGeneratedAudio || lastGeneratedPath) && (
+          <div className="p-2 bg-emerald-950/30 border border-emerald-600/50 rounded text-[10px]">
+            <div className="truncate">Last generated: {lastGeneratedInfo}</div>
+            {lastGeneratedPath && (
+              <div className="text-white/40 truncate mt-0.5" title={lastGeneratedPath}>
+                {lastGeneratedPath}
               </div>
+            )}
+            <div className="flex gap-1 mt-1">
+              <button
+                onClick={playGenerated}
+                className="px-2 py-0.5 bg-emerald-600 text-white text-[10px] rounded hover:bg-emerald-700 transition"
+                aria-label="Play generated voice"
+              >
+                ▶ Play
+              </button>
+              <button
+                onClick={downloadGenerated}
+                className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition"
+                aria-label="Download generated voice"
+              >
+                ⬇ Download
+              </button>
+              <button
+                onClick={exportGenerated}
+                disabled={exporting}
+                className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition disabled:opacity-50"
+                aria-label="Export generated voice"
+              >
+                {exporting ? 'Saving…' : 'Save as…'}
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
+
+      <TextImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        onSelect={(text) => setText(text)}
+      />
 
       <div className="text-[10px] text-white/30 mt-2 pt-2 border-t border-white/10">
         1. Select A/B on video · 2. (Optional) write what the A-B segment says · 3. Type target text · 4. Generate

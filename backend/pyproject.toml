@@ -20,6 +20,7 @@ dependencies = [
     "pydub",
     "psutil>=7.2.2",
     "setuptools>=75.0,<82",
+    "openai-whisper>=20250625",
 ]
 
 [[tool.uv.index]]

@@ -36,10 +36,18 @@ export default function ScriptsPanel() {
   const [title, setTitle] = useState('');
   const text = useEditorStore((s) => s.voiceText);
   const setText = useEditorStore((s) => s.setVoiceText);
+  const refText = useEditorStore((s) => s.voiceRefText);
+  const setRefText = useEditorStore((s) => s.setVoiceRefText);
+  const setRegion = useEditorStore((s) => s.setRegion);
+  const clips = useEditorStore((s) => s.clips);
+  const activeClipId = useEditorStore((s) => s.activeClipId);
+  const region = useEditorStore((s) => s.region);
 
   useEffect(() => {
     saveScripts(scripts);
   }, [scripts]);
+
+  const activeClip = clips.find((c) => c.id === activeClipId);
 
   const handleSave = useCallback(() => {
     const trimmedText = text.trim();
@@ -50,14 +58,28 @@ export default function ScriptsPanel() {
       title: trimmedTitle,
       text: trimmedText,
       createdAt: Date.now(),
+      refText: refText.trim() || undefined,
+      clipId: activeClipId,
+      clipPath: activeClip?.path || null,
+      clipName: activeClip?.name || null,
+      region: region.end > region.start ? { start: region.start, end: region.end } : null,
     };
     setScripts((prev) => [next, ...prev]);
     setTitle('');
-  }, [text, title]);
+  }, [text, title, refText, activeClipId, activeClip, region]);
 
   const handleLoad = useCallback((script: ScriptItem) => {
     setText(script.text);
-  }, [setText]);
+    if (script.refText !== undefined) {
+      setRefText(script.refText);
+    }
+    if (script.region && script.clipId) {
+      const stillLoaded = clips.some((c) => c.id === script.clipId);
+      if (stillLoaded) {
+        setRegion(script.region);
+      }
+    }
+  }, [setText, setRefText, setRegion, clips]);
 
   const handleDelete = useCallback((id: string) => {
     setScripts((prev) => prev.filter((s) => s.id !== id));
@@ -113,8 +135,18 @@ export default function ScriptsPanel() {
                     <div className="text-[10px] text-white/40 line-clamp-2 mt-0.5">
                       {truncate(script.text, 120)}
                     </div>
-                    <div className="text-[9px] text-white/30 mt-0.5">
-                      {new Date(script.createdAt).toLocaleString()}
+                    <div className="text-[9px] text-white/30 mt-0.5 flex items-center gap-1.5">
+                      <span>{new Date(script.createdAt).toLocaleString()}</span>
+                      {script.clipName && (
+                        <span className="text-[#00b4d8]/70 truncate max-w-[120px]" title={script.clipName}>
+                          • {script.clipName}
+                        </span>
+                      )}
+                      {script.region && script.region.end > script.region.start && (
+                        <span className="text-white/40">
+                          • {script.region.start.toFixed(1)}s–{script.region.end.toFixed(1)}s
+                        </span>
+                      )}
                     </div>
                   </button>
                   <button

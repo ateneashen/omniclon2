@@ -1,5 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../stores/editorStore';
+import { MediaClip, WaveformData } from '../../types';
 
 const PADDING = 48;
 const WAVE_HEIGHT = 68;
@@ -9,9 +11,40 @@ const HANDLE_HIT_RADIUS = 20;
 // Browser canvas width limits (Chrome ~32k). Keep well below that so very
 // long videos (e.g. 1800s) still render instead of producing a blank timeline.
 const MAX_CANVAS_WIDTH = 12000;
+// Cap the detail we re-extract to avoid huge temporary WAVs.
+const MAX_WAVEFORM_POINTS = 20000;
 
 function formatSeconds(seconds: number): string {
   return `${seconds.toFixed(2)}s`;
+}
+
+function niceStep(raw: number): number {
+  const steps = [
+    0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.25, 0.5, 1, 2, 5, 10, 15,
+    20, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200,
+  ];
+  for (const s of steps) {
+    if (s >= raw) return s;
+  }
+  return steps[steps.length - 1];
+}
+
+function formatTime(seconds: number, step: number, duration: number): string {
+  const sign = seconds < 0 ? '-' : '';
+  const t = Math.abs(seconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = t % 60;
+  const decimals = step < 0.1 ? 2 : step < 1 ? 1 : 0;
+  if (duration >= 3600) {
+    return `${sign}${h}:${m.toString().padStart(2, '0')}:${s
+      .toFixed(decimals)
+      .padStart(decimals > 0 ? 3 + decimals : 2, '0')}`;
+  }
+  if (duration >= 60) {
+    return `${sign}${m}:${s.toFixed(decimals).padStart(decimals > 0 ? 3 + decimals : 2, '0')}`;
+  }
+  return `${sign}${seconds.toFixed(decimals)}s`;
 }
 
 export default function Timeline() {
@@ -23,12 +56,18 @@ export default function Timeline() {
   const currentTime = useEditorStore((s) => s.currentTime);
   const region = useEditorStore((s) => s.region);
   const zoom = useEditorStore((s) => s.zoom);
+  const clips = useEditorStore((s) => s.clips);
+  const activeClipId = useEditorStore((s) => s.activeClipId);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setRegion = useEditorStore((s) => s.setRegion);
   const setZoom = useEditorStore((s) => s.setZoom);
+  const setWaveform = useEditorStore((s) => s.setWaveform);
+  const selectedAudioTrack = useEditorStore((s) => s.selectedAudioTrack);
   const setMarkA = useEditorStore((s) => s.setMarkA);
   const setMarkB = useEditorStore((s) => s.setMarkB);
   const resetRegion = useEditorStore((s) => s.resetRegion);
+
+  const activeClip = clips.find((c: MediaClip) => c.id === activeClipId);
 
   const [isDragging, setIsDragging] = useState<'playhead' | 'a' | 'b' | null>(null);
   const [hoverHandle, setHoverHandle] = useState<'a' | 'b' | null>(null);
@@ -44,6 +83,36 @@ export default function Timeline() {
     (x: number) => Math.max(0, Math.min(duration, (x - PADDING) / effectivePixelsPerSecond)),
     [effectivePixelsPerSecond, duration]
   );
+
+  // Auto-fit the whole clip into the timeline viewport when a new clip loads.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || duration <= 0) return;
+    const containerWidth = container.clientWidth;
+    if (containerWidth <= 0) return;
+    const desiredZoom = (containerWidth - PADDING * 2) / (duration * 80);
+    setZoom(Math.max(0.0001, Math.min(100, desiredZoom)));
+  }, [duration, setZoom]);
+
+  // Re-extract waveform at higher resolution when zooming in so the canvas never
+  // runs out of samples per pixel.
+  useEffect(() => {
+    if (!activeClip || duration <= 0 || !waveform) return;
+    const visibleWidth = duration * effectivePixelsPerSecond;
+    const neededPoints = Math.ceil(visibleWidth * 2);
+    const currentPoints = waveform.samples.length;
+    if (neededPoints <= currentPoints * 1.2 || currentPoints >= MAX_WAVEFORM_POINTS) return;
+
+    const targetPoints = Math.min(MAX_WAVEFORM_POINTS, neededPoints);
+    invoke<WaveformData>('extract_waveform', {
+      path: activeClip.path,
+      duration,
+      target_points: targetPoints,
+      audioTrackIndex: selectedAudioTrack ?? undefined,
+    })
+      .then((wf) => setWaveform(wf))
+      .catch((err) => console.error('Failed to re-extract waveform:', err));
+  }, [zoom, effectivePixelsPerSecond, duration, activeClip, waveform, setWaveform, selectedAudioTrack]);
 
   // Draw timeline
   useEffect(() => {
@@ -78,15 +147,22 @@ export default function Timeline() {
     ctx.lineTo(width, RULER_HEIGHT - 0.5);
     ctx.stroke();
 
-    // Time markers
+    // Time markers — adaptive step so tick density stays readable at any zoom.
     ctx.fillStyle = '#666';
     ctx.font = '11px Inter, system-ui, sans-serif';
 
-    const step = zoom > 2 ? 0.5 : zoom > 0.5 ? 1 : 5;
-    for (let t = 0; t <= duration; t += step) {
+    const targetPixelSpacing = 80;
+    const step = niceStep(targetPixelSpacing / Math.max(0.0001, effectivePixelsPerSecond));
+    const majorStep = step * 5;
+    const firstTick = Math.floor(0 / step) * step;
+    const count = Math.ceil(duration / step) + 2;
+
+    for (let i = 0; i <= count; i++) {
+      const t = firstTick + i * step;
+      if (t < 0 || t > duration) continue;
       const x = timeToX(t);
-      const isMajor = Math.abs(t % (step * 2)) < 0.001;
-      const isLast = Math.abs(t - duration) < 0.001;
+      const isMajor = Math.abs(t % majorStep) < step * 0.01;
+      const isLast = Math.abs(t - duration) < step * 0.01;
 
       ctx.strokeStyle = isMajor ? '#444' : '#2a2a2a';
       ctx.beginPath();
@@ -95,15 +171,17 @@ export default function Timeline() {
       ctx.stroke();
 
       if (isMajor) {
+        const label = formatTime(t, step, duration);
+        ctx.fillStyle = '#888';
         if (t === 0) {
           ctx.textAlign = 'left';
-          ctx.fillText(t.toFixed(1) + 's', x + 2, RULER_HEIGHT - 14);
+          ctx.fillText(label, x + 2, RULER_HEIGHT - 14);
         } else if (isLast) {
           ctx.textAlign = 'right';
-          ctx.fillText(t.toFixed(1) + 's', x - 2, RULER_HEIGHT - 14);
+          ctx.fillText(label, x - 2, RULER_HEIGHT - 14);
         } else {
           ctx.textAlign = 'center';
-          ctx.fillText(t.toFixed(1) + 's', x, RULER_HEIGHT - 14);
+          ctx.fillText(label, x, RULER_HEIGHT - 14);
         }
       }
     }
@@ -113,13 +191,18 @@ export default function Timeline() {
     ctx.fillStyle = '#111';
     ctx.fillRect(PADDING, waveY, duration * effectivePixelsPerSecond, WAVE_HEIGHT);
 
-    // Draw waveform with min/max filled rects
+    // Draw waveform with symmetric min/max bars and a vertical gradient
     if (waveform && waveform.samples.length > 0 && duration > 0) {
       const samples = waveform.samples;
       const totalPixels = Math.max(1, Math.floor(duration * effectivePixelsPerSecond));
       const samplesPerPixel = Math.max(1, Math.floor(samples.length / totalPixels));
 
-      ctx.fillStyle = '#555';
+      const centerY = waveY + WAVE_HEIGHT / 2;
+      const gradient = ctx.createLinearGradient(0, waveY, 0, waveY + WAVE_HEIGHT);
+      gradient.addColorStop(0, '#00b4d8');
+      gradient.addColorStop(0.5, '#4ecdc4');
+      gradient.addColorStop(1, '#0077b6');
+      ctx.fillStyle = gradient;
 
       for (let px = 0; px < totalPixels; px++) {
         const startIdx = px * samplesPerPixel;
@@ -128,12 +211,11 @@ export default function Timeline() {
         let minSample = 0;
         let maxSample = 0;
         for (let i = startIdx; i < endIdx; i++) {
-          const s = samples[i] || 0;
-          if (s < minSample) minSample = s;
-          if (s > maxSample) maxSample = s;
+          const s = samples[i];
+          if (s.min < minSample) minSample = s.min;
+          if (s.max > maxSample) maxSample = s.max;
         }
 
-        const centerY = waveY + WAVE_HEIGHT / 2;
         const minY = centerY - Math.max(1, Math.abs(minSample) * (WAVE_HEIGHT / 2) * 0.95);
         const maxY = centerY + Math.max(1, Math.abs(maxSample) * (WAVE_HEIGHT / 2) * 0.95);
 
@@ -146,32 +228,77 @@ export default function Timeline() {
         const aX = timeToX(region.start);
         const bX = timeToX(region.end);
 
-        ctx.fillStyle = 'rgba(0, 180, 216, 0.15)';
+        const regionGradient = ctx.createLinearGradient(0, waveY, 0, waveY + WAVE_HEIGHT);
+        regionGradient.addColorStop(0, 'rgba(0, 180, 216, 0.22)');
+        regionGradient.addColorStop(1, 'rgba(0, 180, 216, 0.06)');
+        ctx.fillStyle = regionGradient;
         ctx.fillRect(aX, waveY, bX - aX, WAVE_HEIGHT);
 
-        // A handle
-        const aHover = hoverHandle === 'a' || isDragging === 'a';
-        ctx.fillStyle = aHover ? '#ff8585' : '#ff6b6b';
-        ctx.fillRect(aX - HANDLE_WIDTH / 2, waveY, HANDLE_WIDTH, WAVE_HEIGHT);
-        ctx.font = 'bold 11px Inter, system-ui';
-        ctx.fillText('A', aX + 10, waveY + 14);
+        ctx.strokeStyle = 'rgba(0, 180, 216, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(aX, waveY);
+        ctx.lineTo(aX, waveY + WAVE_HEIGHT);
+        ctx.moveTo(bX, waveY);
+        ctx.lineTo(bX, waveY + WAVE_HEIGHT);
+        ctx.stroke();
 
-        // B handle
-        const bHover = hoverHandle === 'b' || isDragging === 'b';
-        ctx.fillStyle = bHover ? '#6fe0d8' : '#4ecdc4';
-        ctx.fillRect(bX - HANDLE_WIDTH / 2, waveY, HANDLE_WIDTH, WAVE_HEIGHT);
-        ctx.fillText('B', bX - 18, waveY + 14);
+        const drawHandle = (
+          x: number,
+          label: string,
+          color: string,
+          hovered: boolean
+        ) => {
+          const handleW = HANDLE_WIDTH + (hovered ? 2 : 0);
+          const topY = waveY - 4;
+
+          ctx.shadowColor = color;
+          ctx.shadowBlur = hovered ? 10 : 4;
+          ctx.fillStyle = color;
+
+          // Vertical bar
+          ctx.fillRect(x - handleW / 2, waveY, handleW, WAVE_HEIGHT);
+
+          // Top flag
+          ctx.beginPath();
+          ctx.moveTo(x - 8, topY);
+          ctx.lineTo(x + 8, topY);
+          ctx.lineTo(x + 8, topY + 14);
+          ctx.lineTo(x, topY + 18);
+          ctx.lineTo(x - 8, topY + 14);
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.shadowBlur = 0;
+
+          ctx.fillStyle = '#000';
+          ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText(label, x, topY + 11);
+        };
+
+        drawHandle(
+          aX,
+          'A',
+          hoverHandle === 'a' || isDragging === 'a' ? '#ff8585' : '#ff6b6b',
+          hoverHandle === 'a' || isDragging === 'a'
+        );
+        drawHandle(
+          bX,
+          'B',
+          hoverHandle === 'b' || isDragging === 'b' ? '#6fe0d8' : '#4ecdc4',
+          hoverHandle === 'b' || isDragging === 'b'
+        );
 
         // A/B duration label
         const durationText = formatSeconds(region.end - region.start);
-        ctx.fillStyle = '#fff';
-        ctx.font = '10px Inter, system-ui';
+        ctx.font = '10px Inter, system-ui, sans-serif';
         ctx.textAlign = 'center';
         const labelX = (aX + bX) / 2;
         const labelY = waveY + WAVE_HEIGHT - 6;
         const textWidth = ctx.measureText(durationText).width;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        ctx.fillRect(labelX - textWidth / 2 - 3, labelY - 10, textWidth + 6, 14);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 10, textWidth + 8, 15);
         ctx.fillStyle = '#fff';
         ctx.fillText(durationText, labelX, labelY);
       }
@@ -179,19 +306,22 @@ export default function Timeline() {
 
     // Playhead
     const playX = timeToX(currentTime);
-    ctx.strokeStyle = '#fff';
+    ctx.strokeStyle = '#ffd166';
     ctx.lineWidth = 2;
+    ctx.shadowColor = '#ffd166';
+    ctx.shadowBlur = 6;
     ctx.beginPath();
     ctx.moveTo(playX, 0);
     ctx.lineTo(playX, height);
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
     // Playhead triangle
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = '#ffd166';
     ctx.beginPath();
     ctx.moveTo(playX, 0);
-    ctx.lineTo(playX - 6, 9);
-    ctx.lineTo(playX + 6, 9);
+    ctx.lineTo(playX - 7, 10);
+    ctx.lineTo(playX + 7, 10);
     ctx.closePath();
     ctx.fill();
   }, [waveform, duration, currentTime, region, zoom, effectivePixelsPerSecond, timeToX, xToTime, hoverHandle, isDragging]);
@@ -287,6 +417,12 @@ export default function Timeline() {
   const handleZoomIn = () => setZoom(zoom * 1.25);
   const handleZoomOut = () => setZoom(zoom / 1.25);
   const handleZoomReset = () => setZoom(1);
+  const handleZoomFit = () => {
+    const container = containerRef.current;
+    if (!container || duration <= 0) return;
+    const desiredZoom = (container.clientWidth - PADDING * 2) / (duration * 80);
+    setZoom(Math.max(0.0001, Math.min(100, desiredZoom)));
+  };
   const handleAutoRegion = () => {
     const end = Math.min(duration, 5);
     setRegion({ start: 0, end });
@@ -356,7 +492,15 @@ export default function Timeline() {
             aria-label="Reset zoom"
             title="Reset zoom"
           >
-            {zoom.toFixed(1)}x
+            {zoom < 0.1 ? zoom.toFixed(3) : zoom.toFixed(1)}x
+          </button>
+          <button
+            onClick={handleZoomFit}
+            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
+            aria-label="Fit to view"
+            title="Fit whole clip to view"
+          >
+            Fit
           </button>
           <button
             onClick={handleZoomIn}

@@ -163,6 +163,69 @@ fn get_generate_options(app: tauri::AppHandle) -> Result<serde_json::Value, Stri
     Ok(json)
 }
 
+/// Proxy to Python backend /media/extract_subtitles.
+/// Extracts embedded subtitle text from the source video (SRT/ASS/etc).
+#[tauri::command]
+fn extract_subtitles(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/media/extract_subtitles", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Media", "extract_subtitles invoked, proxying to backend", None);
+
+    let resp = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(60))
+        .set("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /media/extract_subtitles: {}", e);
+            diagnostics::log_error(&app, "Media", "extract_subtitles proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
+/// Proxy to Python backend /media/subtitle_tracks.
+/// Lists embedded subtitle streams for the user to choose from.
+#[tauri::command]
+fn subtitle_tracks(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/media/subtitle_tracks", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Media", "subtitle_tracks invoked, proxying to backend", None);
+
+    let resp = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(30))
+        .set("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /media/subtitle_tracks: {}", e);
+            diagnostics::log_error(&app, "Media", "subtitle_tracks proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
+/// Proxy to Python backend /media/transcribe.
+/// Runs OpenAI Whisper on the A-B audio segment (ASR fallback when no subtitles exist).
+#[tauri::command]
+fn transcribe_audio(app: tauri::AppHandle, payload: serde_json::Value) -> Result<serde_json::Value, String> {
+    let url = format!("http://127.0.0.1:{}/media/transcribe", BACKEND_PORT);
+    diagnostics::log_diagnostic(&app, "INFO", "Media", "transcribe_audio invoked, proxying to backend", None);
+
+    let resp = ureq::post(&url)
+        .timeout(std::time::Duration::from_secs(300))
+        .set("Content-Type", "application/json")
+        .send_json(payload)
+        .map_err(|e| {
+            let msg = format!("Failed to reach backend /media/transcribe: {}", e);
+            diagnostics::log_error(&app, "Media", "transcribe_audio proxy failed", &e.to_string(), None);
+            msg
+        })?;
+
+    let json: serde_json::Value = resp.into_json().map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
 /// Proxy to Python backend /voice/status for cloning service readiness (primary model, k2-fsa prep state).
 #[tauri::command]
 fn get_voice_status(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
@@ -215,8 +278,12 @@ pub fn run() {
             generate,
             generate_from_clip,
             get_generate_options,
+            extract_subtitles,
+            subtitle_tracks,
+            transcribe_audio,
             get_voice_status,
             commands::media::import_media,
+            commands::media::audio_tracks,
             commands::media::extract_waveform,
             commands::media::extract_segment,
             // Model Management (Fase B1)

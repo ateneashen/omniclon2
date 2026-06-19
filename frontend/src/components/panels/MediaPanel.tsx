@@ -3,9 +3,37 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { useEditorStore } from '../../stores/editorStore';
-import { MediaClip, WaveformData } from '../../types';
+import { MediaClip, WaveformData, AudioTrack } from '../../types';
 
 const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm'];
+const RECENT_CLIPS_KEY = 'omniclon2-recent-clips';
+const MAX_RECENT = 10;
+
+interface RecentClip {
+  path: string;
+  name: string;
+  duration: number;
+  timestamp: number;
+}
+
+function loadRecentClips(): RecentClip[] {
+  try {
+    const raw = localStorage.getItem(RECENT_CLIPS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentClips(clips: RecentClip[]) {
+  try {
+    localStorage.setItem(RECENT_CLIPS_KEY, JSON.stringify(clips));
+  } catch {
+    // ignore
+  }
+}
 
 export default function MediaPanel() {
   const clips = useEditorStore((s) => s.clips);
@@ -14,9 +42,24 @@ export default function MediaPanel() {
   const removeClip = useEditorStore((s) => s.removeClip);
   const setWaveform = useEditorStore((s) => s.setWaveform);
   const setActiveClip = useEditorStore((s) => s.setActiveClip);
+  const setAudioTracks = useEditorStore((s) => s.setAudioTracks);
+  const setSelectedAudioTrack = useEditorStore((s) => s.setSelectedAudioTrack);
   const [isImporting, setIsImporting] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [recentClips, setRecentClips] = useState<RecentClip[]>(loadRecentClips);
+
+  const updateRecentClips = useCallback((clip: MediaClip) => {
+    setRecentClips((prev) => {
+      const filtered = prev.filter((r) => r.path !== clip.path);
+      const next = [
+        { path: clip.path, name: clip.name, duration: clip.duration, timestamp: Date.now() },
+        ...filtered,
+      ].slice(0, MAX_RECENT);
+      saveRecentClips(next);
+      return next;
+    });
+  }, []);
 
   const importClip = useCallback(async (path: string) => {
     setIsImporting(true);
@@ -24,7 +67,31 @@ export default function MediaPanel() {
     try {
       const clip = await invoke<MediaClip>('import_media', { path });
       addClip(clip);
-      const wf = await invoke<WaveformData>('extract_waveform', { path: clip.path, duration: clip.duration });
+      updateRecentClips(clip);
+
+      // Detect audio tracks and default to the first one
+      let firstAudioIndex: number | null = null;
+      try {
+        const audioRes = await invoke<{ success: boolean; tracks?: AudioTrack[] }>('audio_tracks', { path: clip.path });
+        if (audioRes.success && audioRes.tracks && audioRes.tracks.length > 0) {
+          setAudioTracks(audioRes.tracks);
+          firstAudioIndex = audioRes.tracks[0].index;
+          setSelectedAudioTrack(firstAudioIndex);
+        } else {
+          setAudioTracks([]);
+          setSelectedAudioTrack(null);
+        }
+      } catch (audioErr) {
+        console.error('[MediaPanel] audio_tracks failed', audioErr);
+        setAudioTracks([]);
+        setSelectedAudioTrack(null);
+      }
+
+      const wf = await invoke<WaveformData>('extract_waveform', {
+        path: clip.path,
+        duration: clip.duration,
+        audioTrackIndex: firstAudioIndex ?? undefined,
+      });
       setWaveform(wf);
     } catch (err) {
       const message = 'Failed to load video: ' + String(err);
@@ -33,7 +100,7 @@ export default function MediaPanel() {
     } finally {
       setIsImporting(false);
     }
-  }, [addClip, setWaveform]);
+  }, [addClip, setWaveform, updateRecentClips]);
 
   const handleLoadVideo = useCallback(async () => {
     try {
@@ -116,6 +183,40 @@ export default function MediaPanel() {
       {lastError && (
         <div className="mb-3 text-[10px] text-red-300 bg-red-950/30 border border-red-500/30 rounded p-2">
           {lastError}
+        </div>
+      )}
+
+      {recentClips.length > 0 && (
+        <div className="mb-3">
+          <div className="text-[10px] text-white/40 mb-1">Recent videos</div>
+          <ul className="space-y-1 max-h-28 overflow-auto">
+            {recentClips.map((clip) => (
+              <li
+                key={clip.path}
+                className="flex items-center justify-between px-2 py-1 rounded text-xs hover:bg-white/5 cursor-pointer transition group"
+                onClick={() => importClip(clip.path)}
+                title={clip.path}
+              >
+                <span className="truncate pr-2 flex-1 text-white/70">{clip.name}</span>
+                <span className="text-white/40 shrink-0">{clip.duration.toFixed(1)}s</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRecentClips((prev) => {
+                      const next = prev.filter((r) => r.path !== clip.path);
+                      saveRecentClips(next);
+                      return next;
+                    });
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1 transition ml-1"
+                  aria-label={`Remove ${clip.name} from recent`}
+                  title="Remove from recent"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

@@ -14,7 +14,11 @@
       "allow": [
         "$APPDATA/**",
         "$APPLOCALDATA/**",
-        "$TEMP/**"
+        "$TEMP/**",
+        "$HOME/**",
+        "$DESKTOP/**",
+        "$DOWNLOAD/**",
+        "$DOCUMENT/**"
       ]
     },
     "dialog:default"

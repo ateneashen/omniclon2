@@ -1,16 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../stores/editorStore';
-
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const ms = Math.floor((seconds % 1) * 100);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}.${pad(ms)}`;
-  return `${pad(m)}:${pad(s)}.${pad(ms)}`;
-}
+import VideoTransportControls from './VideoTransportControls';
 
 export default function VideoPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -29,6 +20,7 @@ export default function VideoPreview() {
   const isLooping = useEditorStore((s) => s.isLooping);
   const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
   const setPlaying = useEditorStore((s) => s.setPlaying);
+  const toggleLoop = useEditorStore((s) => s.toggleLoop);
 
   const activeClip = clips.find((c) => c.id === activeClipId);
 
@@ -193,26 +185,22 @@ export default function VideoPreview() {
         </div>
       )}
 
-      <div className="absolute bottom-3 left-3 text-[11px] text-white/80 bg-black/60 px-2 py-0.5 rounded">
-        {formatTime(currentTime)} / {formatTime(activeClip.duration)}
-      </div>
-
-      <div className="absolute bottom-3 right-3 text-[10px] text-white/40 bg-black/50 px-1.5 py-0.5 rounded truncate max-w-[40%]">
+      <div className="absolute top-3 left-3 text-[10px] text-white/40 bg-black/50 px-1.5 py-0.5 rounded truncate max-w-[50%]">
         {activeClip.name}
       </div>
 
-      <button
-        onClick={toggleMute}
-        className={`absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded transition ${
-          muted
-            ? 'bg-red-600/80 text-white hover:bg-red-500/80'
-            : 'bg-black/60 text-white/70 hover:bg-black/80'
-        }`}
-        aria-label={muted ? 'Unmute video' : 'Mute video'}
-        title={muted ? 'Video muted — click to unmute' : 'Mute video'}
-      >
-        {muted ? '🔇 Muted' : '🔊 Sound on'}
-      </button>
+      <VideoTransportControls
+        isPlaying={isPlaying}
+        currentTime={currentTime}
+        duration={activeClip.duration}
+        isLooping={isLooping}
+        muted={muted}
+        region={region}
+        onPlayPause={handleClick}
+        onSeek={setCurrentTime}
+        onToggleLoop={toggleLoop}
+        onToggleMute={toggleMute}
+      />
 
       {videoError && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-center p-4">

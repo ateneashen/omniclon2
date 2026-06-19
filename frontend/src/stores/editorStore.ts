@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Region, MediaClip, WaveformData, VoiceReference } from '../types';
+import { Region, MediaClip, WaveformData, VoiceReference, SubtitleTrack, AudioTrack } from '../types';
 
 interface EditorState {
   // Current project
@@ -26,6 +26,18 @@ interface EditorState {
 
   // Voice synthesis text shared between panels
   voiceText: string;
+  voiceRefText: string;
+
+  // Subtitle tracks for the active clip (populated by ffprobe)
+  subtitleTracks: SubtitleTrack[];
+  selectedSubtitleTrack: number | null;
+
+  // Audio tracks for the active clip (populated by ffprobe)
+  audioTracks: AudioTrack[];
+  selectedAudioTrack: number | null;
+
+  // Fine-tune target for frame-by-frame A/B adjustment ('a' | 'b' | null)
+  fineTuneTarget: 'a' | 'b' | null;
 
   // Actions
   setActiveClip: (id: string | null) => void;
@@ -45,6 +57,12 @@ interface EditorState {
   setIsGenerating: (generating: boolean) => void;
   setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => void;
   setVoiceText: (text: string) => void;
+  setVoiceRefText: (text: string) => void;
+  setSubtitleTracks: (tracks: SubtitleTrack[]) => void;
+  setSelectedSubtitleTrack: (index: number | null) => void;
+  setAudioTracks: (tracks: AudioTrack[]) => void;
+  setSelectedAudioTrack: (index: number | null) => void;
+  setFineTuneTarget: (target: 'a' | 'b' | null) => void;
 
   // A/B helpers
   setMarkA: (time: number) => void;
@@ -69,6 +87,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lastGeneratedPath: null,
   lastGeneratedInfo: null,
   voiceText: '',
+  voiceRefText: '',
+  subtitleTracks: [],
+  selectedSubtitleTrack: null,
+  audioTracks: [],
+  selectedAudioTrack: null,
+  fineTuneTarget: null,
 
   setActiveClip: (id) => set({ activeClipId: id }),
   
@@ -100,7 +124,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   })),
 
-  setZoom: (zoom) => set({ zoom: Math.max(0.1, Math.min(100, zoom)) }),
+  setZoom: (zoom) => set({ zoom: Math.max(0.0001, Math.min(100, zoom)) }),
   
   toggleLoop: () => set((state) => ({ isLooping: !state.isLooping })),
   
@@ -114,17 +138,33 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedPath: outputPath, lastGeneratedInfo: info }),
   setVoiceText: (text: string) => set({ voiceText: text }),
+  setVoiceRefText: (text: string) => set({ voiceRefText: text }),
+  setSubtitleTracks: (tracks: SubtitleTrack[]) => set({ subtitleTracks: tracks }),
+  setSelectedSubtitleTrack: (index: number | null) => set({ selectedSubtitleTrack: index }),
+  setAudioTracks: (tracks: AudioTrack[]) => set({ audioTracks: tracks }),
+  setSelectedAudioTrack: (index: number | null) => set({ selectedAudioTrack: index }),
+  setFineTuneTarget: (target) => set({ fineTuneTarget: target }),
 
   setMarkA: (time) => {
     const { region } = get();
-    const newStart = Math.max(0, Math.min(time, region.end - 0.01));
-    set({ region: { ...region, start: newStart } });
+    const clamped = Math.max(0, time);
+    if (clamped >= region.end) {
+      // A placed after B: swap roles so the old B becomes A and the new point becomes B.
+      set({ region: { start: region.end, end: clamped } });
+    } else {
+      set({ region: { ...region, start: clamped } });
+    }
   },
 
   setMarkB: (time) => {
     const { region, duration } = get();
-    const newEnd = Math.min(duration, Math.max(time, region.start + 0.01));
-    set({ region: { ...region, end: newEnd } });
+    const clamped = Math.min(duration, time);
+    if (clamped <= region.start) {
+      // B placed before A: swap roles so the old A becomes B and the new point becomes A.
+      set({ region: { start: clamped, end: region.start } });
+    } else {
+      set({ region: { ...region, end: clamped } });
+    }
   },
 
   resetRegion: () => {

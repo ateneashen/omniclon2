@@ -7,10 +7,15 @@ with excellent A/B Roll support and strong diagnostic logging.
 
 from __future__ import annotations
 
+import json
 import os
+import re
+import subprocess
 import sys
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -242,6 +247,259 @@ async def get_voice_status():
         "available_models": list(getattr(svc, "available_models", {}).keys()),
         "cloning_model": getattr(svc, "cloning_model", None),
     }
+
+
+# ============================================================
+# Subtitle extraction helpers
+# ============================================================
+
+def _parse_srt_time(t: str) -> float:
+    """Parse '00:00:00,000' or '00:00:00.000' to seconds."""
+    t = t.strip().replace('.', ',')
+    h, m, s = t.split(':')
+    sec, ms = s.split(',')
+    return int(h) * 3600 + int(m) * 60 + int(sec) + int(ms) / 1000
+
+
+def _parse_srt(text: str, start: float = 0, end: float | None = None) -> str:
+    lines = text.splitlines()
+    result: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if not line or not line.isdigit():
+            i += 1
+            continue
+        i += 1
+        if i >= len(lines):
+            break
+        time_line = lines[i].strip()
+        i += 1
+        if '-->' not in time_line:
+            continue
+        parts = time_line.split('-->')
+        if len(parts) != 2:
+            continue
+        try:
+            sub_start = _parse_srt_time(parts[0])
+            sub_end = _parse_srt_time(parts[1])
+        except Exception:
+            continue
+        block_lines: list[str] = []
+        while i < len(lines) and lines[i].strip():
+            block_lines.append(lines[i].strip())
+            i += 1
+        if sub_end < start:
+            continue
+        if end is not None and sub_start > end:
+            continue
+        if block_lines:
+            result.append(' '.join(block_lines))
+    return '\n'.join(result)
+
+
+def _get_subtitle_tracks(video_path: str) -> dict:
+    if not os.path.exists(video_path):
+        return {"success": False, "error": "Video file not found"}
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-print_format", "json", video_path],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        data = json.loads(probe.stdout)
+        tracks = []
+        for s in data.get("streams", []):
+            if s.get("codec_type") != "subtitle":
+                continue
+            tracks.append({
+                "index": s.get("index"),
+                "codec_name": s.get("codec_name", ""),
+                "language": s.get("tags", {}).get("language", "unknown"),
+                "title": s.get("tags", {}).get("title", ""),
+                "disposition": s.get("disposition", {}),
+            })
+        return {"success": True, "tracks": tracks}
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "error": f"ffprobe error: {e.stderr or e.stdout or str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# Supported text-based subtitle codecs. Image-based codecs (PGS/VOBSUB/DVB)
+# cannot be returned as plain text.
+_TEXT_SUBTITLE_CODECS = {"subrip", "srt", "ass", "ssa", "webvtt", "mov_text"}
+
+
+def _extract_subtitle_text(video_path: str, start: float = 0, end: float | None = None, track_index: int | None = None) -> dict:
+    if not os.path.exists(video_path):
+        return {"success": False, "error": "Video file not found"}
+    try:
+        tracks_res = _get_subtitle_tracks(video_path)
+        if not tracks_res.get("success"):
+            return tracks_res
+        tracks = tracks_res.get("tracks", [])
+        if not tracks:
+            return {"success": False, "error": "No subtitle streams found"}
+
+        if track_index is not None:
+            stream = next((t for t in tracks if t["index"] == track_index), None)
+            if stream is None:
+                return {"success": False, "error": f"Subtitle track {track_index} not found"}
+        else:
+            text_tracks = [t for t in tracks if t.get("codec_name", "").lower() in _TEXT_SUBTITLE_CODECS]
+            if not text_tracks:
+                return {"success": False, "error": "No text-based subtitle streams found (image-based subtitles cannot be extracted as text)"}
+            stream = text_tracks[0]
+
+        codec = stream.get("codec_name", "").lower()
+        if codec not in _TEXT_SUBTITLE_CODECS:
+            return {"success": False, "error": f"Selected subtitle track uses image-based codec '{codec}' and cannot be extracted as text"}
+
+        suffix = ".srt" if codec in ("subrip", "srt", "mov_text") else ".ass" if codec in ("ass", "ssa") else ".vtt"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False, mode="w", encoding="utf-8") as f:
+            tmp_path = f.name
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", video_path, "-map", f"0:{stream['index']}", tmp_path],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            with open(tmp_path, "r", encoding="utf-8", errors="ignore") as f:
+                raw = f.read()
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        if suffix == ".srt":
+            text = _parse_srt(raw, start, end)
+        elif suffix == ".vtt":
+            # VTT syntax is close enough to SRT for the block parser.
+            text = _parse_srt(raw, start, end)
+        else:
+            # For ASS return raw text for now; callers can parse if needed.
+            text = raw
+
+        return {
+            "success": True,
+            "text": text,
+            "language": stream.get("language", "unknown"),
+            "codec": codec,
+            "track_index": stream.get("index"),
+            "stream_count": len(tracks),
+        }
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "error": f"ffmpeg/ffprobe error: {e.stderr or e.stdout or str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+# Whisper model cache (lives for the lifetime of the backend process).
+_whisper_model = None
+_whisper_model_name: Optional[str] = None
+
+
+def _load_whisper_model(model_size: str = "base"):
+    global _whisper_model, _whisper_model_name
+    import whisper
+    if _whisper_model is None or _whisper_model_name != model_size:
+        print(f"[backend] Loading Whisper model '{model_size}'...")
+        _whisper_model = whisper.load_model(model_size)
+        _whisper_model_name = model_size
+        print(f"[backend] Whisper model '{model_size}' loaded.")
+    return _whisper_model
+
+
+def _transcribe_with_whisper(
+    video_path: str,
+    start: float = 0,
+    end: float | None = None,
+    language: Optional[str] = None,
+    model_size: str = "base",
+) -> dict:
+    if not os.path.exists(video_path):
+        return {"success": False, "error": "Video file not found"}
+
+    duration = (end if end is not None else 1e9) - start
+    if duration <= 0:
+        return {"success": False, "error": "Invalid A-B range"}
+    if duration > 120:
+        return {"success": False, "error": "ASR segment too long (maximum 120 seconds)"}
+
+    try:
+        import whisper
+    except ImportError:
+        return {"success": False, "error": "Whisper is not installed in the backend"}
+
+    audio_tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            audio_tmp = f.name
+        ffmpeg_args = [
+            "ffmpeg", "-y",
+            "-ss", str(start),
+            "-i", video_path,
+            "-t", str(duration),
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            audio_tmp,
+        ]
+        subprocess.run(ffmpeg_args, capture_output=True, text=True, check=True)
+
+        model = _load_whisper_model(model_size)
+        kwargs = {"language": language} if language else {}
+        result = model.transcribe(audio_tmp, **kwargs)
+
+        return {
+            "success": True,
+            "text": (result.get("text") or "").strip(),
+            "language": result.get("language"),
+            "model": model_size,
+        }
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "error": f"ffmpeg error: {e.stderr or e.stdout or str(e)}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        if audio_tmp:
+            try:
+                os.unlink(audio_tmp)
+            except OSError:
+                pass
+
+
+@app.post("/media/subtitle_tracks")
+async def subtitle_tracks(payload: dict):
+    """List embedded subtitle streams (index, codec, language, title)."""
+    video_path = payload.get("path") or payload.get("video_path")
+    return _get_subtitle_tracks(video_path)
+
+
+@app.post("/media/extract_subtitles")
+async def extract_subtitles(payload: dict):
+    """Extract a text-based embedded subtitle stream and return plain text for the A-B range."""
+    video_path = payload.get("path") or payload.get("video_path")
+    start_time = payload.get("startTime") or payload.get("start_time") or 0
+    end_time = payload.get("endTime") or payload.get("end_time")
+    track_index = payload.get("trackIndex") or payload.get("track_index")
+    return _extract_subtitle_text(video_path, start_time, end_time, track_index)
+
+
+@app.post("/media/transcribe")
+async def transcribe_audio(payload: dict):
+    """Transcribe the A-B audio segment using OpenAI Whisper (ASR fallback)."""
+    video_path = payload.get("path") or payload.get("video_path")
+    start_time = payload.get("startTime") or payload.get("start_time") or 0
+    end_time = payload.get("endTime") or payload.get("end_time")
+    language = payload.get("language")
+    model_size = payload.get("model") or payload.get("model_size") or "base"
+    return _transcribe_with_whisper(video_path, start_time, end_time, language, model_size)
 
 
 # TODO (Core Cloning Flow focus):

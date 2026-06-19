@@ -11,10 +11,30 @@ export interface MediaClip {
   thumbnail?: string;
 }
 
+export interface WaveformSample {
+  min: number;
+  max: number;
+}
+
 export interface WaveformData {
-  samples: number[];
+  samples: WaveformSample[];
   sampleRate: number;
   duration: number;
+  channels: number;
+}
+
+export interface SubtitleTrack {
+  index: number;
+  codec_name: string;
+  language: string;
+  title: string;
+}
+
+export interface AudioTrack {
+  index: number;
+  codec_name: string;
+  language: string;
+  title: string;
   channels: number;
 }
 
@@ -127,4 +147,10 @@ export interface ScriptItem {
   title: string;
   text: string;
   createdAt: number;
+  // Optional context captured when the script was saved
+  refText?: string;
+  clipId?: string | null;
+  clipPath?: string | null;
+  clipName?: string | null;
+  region?: { start: number; end: number } | null;
 }
