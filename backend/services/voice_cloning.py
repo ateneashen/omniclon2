@@ -18,6 +18,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
@@ -37,6 +38,30 @@ PROJECT_ROOT = BACKEND_DIR.parent
 
 AUTONOMOUS_MODEL_ROOT = PROJECT_ROOT / "data" / "models"
 AUTONOMOUS_K2_PATH = AUTONOMOUS_MODEL_ROOT / "k2-fsa_OmniVoice"
+
+
+def to_short_path(path: str) -> str:
+    """Return the Windows short (8.3) path for a given path if possible.
+
+    Some downstream C++/Python libraries (e.g. OmniVoice's audio tokenizer)
+    do not handle Unicode or spaces in file paths well on Windows. Using the
+    short path is a robust workaround.
+    """
+    if sys.platform != "win32":
+        return path
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+        buf_size = wintypes.DWORD(4096)
+        buf = ctypes.create_unicode_buffer(4096)
+        ret = kernel32.GetShortPathNameW(path, buf, buf_size)
+        if ret and ret < buf_size.value:
+            return buf.value
+    except Exception as e:
+        print(f"[VoiceCloningService] to_short_path failed ({e}), using original path")
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -165,6 +190,7 @@ class VoiceCloningService:
         if not self._initialized:
             self.initialize()
 
+        request.reference_audio_path = to_short_path(request.reference_audio_path)
         print(f"[VoiceCloningService] Generation requested: '{request.text[:80]}...'")
         print(f"[VoiceCloningService] Reference: {request.reference_audio_path}")
         print(f"[VoiceCloningService] Primary model: {self.primary_cloning_model} | k2 loaded: {self._k2fsa_loaded}")
@@ -232,7 +258,7 @@ class VoiceCloningService:
         if not self._initialized:
             self.initialize()
 
-        video_path = Path(request.video_path)
+        video_path = Path(to_short_path(request.video_path))
         if not video_path.exists():
             return GenerationResult(success=False, error_message="El video de origen no existe en disco.")
 

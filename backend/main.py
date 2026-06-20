@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -183,8 +184,9 @@ async def generate_voice(payload: dict):
         return {"success": False, "error_message": "VoiceCloningService no inicializado"}
 
     try:
+        print(f"[backend] [GENERATE] raw payload keys={list(payload.keys())} duration={payload.get('duration', '<missing>')} t_shift={payload.get('t_shift', '<missing>')}")
         request = GenerationRequest(**payload)
-        print(f"[backend] [GENERATE] start text_len={len(request.text)} ref={request.reference_audio_path}")
+        print(f"[backend] [GENERATE] start text_len={len(request.text)} ref={request.reference_audio_path} duration={request.duration} t_shift={request.t_shift}")
         result = voice_cloning_service.generate(request)
         if result.success:
             print(f"[backend] [GENERATE] success duration={result.duration_seconds:.2f}s model={result.model_used} path={result.output_path}")
@@ -192,7 +194,8 @@ async def generate_voice(payload: dict):
             print(f"[backend] [GENERATE] failed error={result.error_message}")
         return result.model_dump()
     except Exception as e:
-        print(f"[backend] [GENERATE] exception error={str(e)}")
+        tb = traceback.format_exc()
+        print(f"[backend] [GENERATE] exception error={str(e)}\n{tb}")
         return {
             "success": False,
             "error_message": f"Error procesando petición de generación: {str(e)}"
@@ -209,8 +212,9 @@ async def generate_voice_from_clip(payload: dict):
         return {"success": False, "error_message": "VoiceCloningService no inicializado"}
 
     try:
+        print(f"[backend] [GENERATE_FROM_CLIP] raw payload keys={list(payload.keys())} duration={payload.get('duration', '<missing>')} t_shift={payload.get('t_shift', '<missing>')}")
         request = GenerationFromClipRequest(**payload)
-        print(f"[backend] [GENERATE_FROM_CLIP] start text_len={len(request.text)} video={request.video_path} ab={request.start_time:.2f}-{request.end_time:.2f}")
+        print(f"[backend] [GENERATE_FROM_CLIP] start text_len={len(request.text)} video={request.video_path} ab={request.start_time:.2f}-{request.end_time:.2f} duration={request.duration} t_shift={request.t_shift}")
         result = voice_cloning_service.generate_from_clip(request)
         if result.success:
             print(f"[backend] [GENERATE_FROM_CLIP] success duration={result.duration_seconds:.2f}s model={result.model_used} path={result.output_path}")
@@ -218,7 +222,8 @@ async def generate_voice_from_clip(payload: dict):
             print(f"[backend] [GENERATE_FROM_CLIP] failed error={result.error_message}")
         return result.model_dump()
     except Exception as e:
-        print(f"[backend] [GENERATE_FROM_CLIP] exception error={str(e)}")
+        tb = traceback.format_exc()
+        print(f"[backend] [GENERATE_FROM_CLIP] exception error={str(e)}\n{tb}")
         return {
             "success": False,
             "error_message": f"Error procesando generación desde clip: {str(e)}"
