@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { BootstrapStatus } from '../types';
+import { logError } from '../lib/log';
 import ModelsSplashSection from './splash/ModelsSplashSection';
 
 interface LogLine {
@@ -77,7 +78,7 @@ export default function BootstrapSplash({ backendStatus }: Props) {
         }))
       );
     } catch (e) {
-      console.error('Log poll failed', e);
+      logError('BootstrapSplash', 'Log poll failed', e);
     }
   };
 
@@ -100,7 +101,7 @@ export default function BootstrapSplash({ backendStatus }: Props) {
       await new Promise((r) => setTimeout(r, 400));
       await invoke('start_backend');
     } catch (e) {
-      console.error(e);
+      logError('BootstrapSplash', 'Retry backend failed', e);
     } finally {
       setIsRetrying(false);
     }
@@ -113,7 +114,7 @@ export default function BootstrapSplash({ backendStatus }: Props) {
       await new Promise((r) => setTimeout(r, 800));
       await invoke('start_backend');
     } catch (e) {
-      console.error(e);
+      logError('BootstrapSplash', 'Force restart backend failed', e);
     } finally {
       setIsRetrying(false);
     }
@@ -149,17 +150,7 @@ export default function BootstrapSplash({ backendStatus }: Props) {
       const logsDir = await invoke<string>('get_logs_dir');
       await openPath(logsDir);
     } catch (err) {
-      console.error('Open logs failed', err);
-      try {
-        await invoke('log_diagnostic_event', {
-          level: 'WARN',
-          component: 'BootstrapSplash',
-          message: 'Open logs folder failed',
-          context: String(err),
-        });
-      } catch {
-        // ignore secondary logging failure
-      }
+      logError('BootstrapSplash', 'Open logs folder failed', err);
       setCopyNotice('Could not open logs folder automatically.');
     }
   };

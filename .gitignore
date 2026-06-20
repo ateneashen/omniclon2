@@ -61,6 +61,8 @@ dist-ssr/
 *.local
 *.tsbuildinfo
 .vite/
+!frontend/src/lib/
+!frontend/src/lib/**
 
 # --- Rust / Tauri ---
 src-tauri/target/

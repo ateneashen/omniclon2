@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { logError } from '../lib/log';
 
 export interface VoiceStatus {
   ready?: boolean;
@@ -26,7 +27,7 @@ export const useVoiceStore = create<VoiceState>((set) => ({
       const s = await invoke<VoiceStatus>('get_voice_status');
       set({ status: s, loading: false });
     } catch (err) {
-      console.error('[voiceStore] fetch failed', err);
+      logError('voiceStore', 'Fetch voice status failed', err);
       set({ status: { ready: false, error: 'unavailable' }, loading: false });
     }
   },

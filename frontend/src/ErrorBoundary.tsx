@@ -1,4 +1,5 @@
 import { Component, ReactNode } from 'react';
+import { logError } from './lib/log';
 
 interface Props {
   children: ReactNode;
@@ -7,12 +8,13 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  copied: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, copied: false };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -21,28 +23,57 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('Uncaught error in React tree:', error, errorInfo);
+    logError('ErrorBoundary', 'Uncaught React error', error, {
+      componentStack: errorInfo.componentStack,
+    });
   }
 
   handleReset = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, copied: false });
+  };
+
+  handleCopyError = async () => {
+    const { error } = this.state;
+    const text = error
+      ? `${error.message}\n\n${error.stack || ''}`
+      : 'Unknown error';
+    try {
+      await navigator.clipboard.writeText(text);
+      this.setState({ copied: true });
+      setTimeout(() => this.setState({ copied: false }), 2500);
+    } catch {
+      this.setState({ copied: false });
+    }
   };
 
   render() {
     if (this.state.hasError) {
       return (
         <div className="h-screen w-screen bg-[#111] text-red-400 font-mono flex flex-col items-center justify-center p-6 text-center">
-          <h1 className="text-white text-xl mb-2">React crashed</h1>
-          <pre className="text-left text-xs bg-black/50 p-4 rounded max-w-2xl max-h-[60vh] overflow-auto whitespace-pre-wrap">
+          <h1 className="text-white text-xl mb-2">OmniClon 2 encountered an error</h1>
+          <p className="text-white/60 text-sm mb-4 max-w-md">
+            The UI crashed unexpectedly. The error has been logged to the dedicated diagnostic logs.
+            You can copy the details below for support.
+          </p>
+          <pre className="text-left text-xs bg-black/50 p-4 rounded max-w-2xl max-h-[50vh] overflow-auto whitespace-pre-wrap border border-red-500/20">
             {this.state.error?.message}
             {'\n\n'}
             {this.state.error?.stack}
           </pre>
-          <button
-            onClick={this.handleReset}
-            className="mt-4 px-4 py-2 bg-white/10 hover:bg-white/15 rounded text-white text-sm transition"
-          >
-            Try again
-          </button>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={this.handleReset}
+              className="px-4 py-2 bg-white/10 hover:bg-white/15 rounded text-white text-sm transition"
+            >
+              Try again
+            </button>
+            <button
+              onClick={this.handleCopyError}
+              className="px-4 py-2 bg-red-600/80 hover:bg-red-500/80 rounded text-white text-sm transition"
+            >
+              {this.state.copied ? 'Copied!' : 'Copy error details'}
+            </button>
+          </div>
         </div>
       );
     }

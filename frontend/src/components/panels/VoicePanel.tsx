@@ -4,6 +4,7 @@ import { readFile, writeFile } from '@tauri-apps/plugin-fs';
 import { save } from '@tauri-apps/plugin-dialog';
 import { useEditorStore } from '../../stores/editorStore';
 import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
+import { logError, logInfo } from '../../lib/log';
 import { VoiceReference, GenerationOptions, GenerateOptionsResponse, SubtitleTrack, WaveformData } from '../../types';
 import CollapsibleSection from '../ui/CollapsibleSection';
 import TextImportModal from '../ui/TextImportModal';
@@ -143,7 +144,7 @@ export default function VoicePanel() {
         }
       })
       .catch((err) => {
-        console.error('[VoicePanel] subtitle_tracks failed', err);
+        logError('VoicePanel', 'subtitle_tracks failed', err, { clipId: activeClipId });
         setSubtitleTracks([]);
         setSelectedSubtitleTrack(null);
       });
@@ -152,7 +153,7 @@ export default function VoicePanel() {
   useEffect(() => {
     invoke<GenerateOptionsResponse>('get_generate_options')
       .then((res) => setOptionMeta(res.options))
-      .catch((err) => console.error('[VoicePanel] get_generate_options failed', err));
+      .catch((err) => logError('VoicePanel', 'get_generate_options failed', err));
   }, []);
 
   const updateOption = <K extends keyof GenerationOptions>(key: K, value: GenerationOptions[K]) => {
@@ -176,6 +177,7 @@ export default function VoicePanel() {
       audioRef.current = audio;
       await audio.play();
     } catch (err) {
+      logError('VoicePanel', 'Playback failed', err);
       setError('Playback failed: ' + String(err));
     }
   }, [stopCurrentAudio]);
@@ -213,7 +215,7 @@ export default function VoicePanel() {
 
   const handleExportAB = useCallback(async () => {
     setError(null);
-    console.log('[VoicePanel] Export A-B clicked', { activeClipId, region, clipsCount: clips.length });
+    logInfo('VoicePanel', 'Export A-B clicked', { activeClipId, region, clipsCount: clips.length });
     if (!activeClipId) {
       setError('No clip selected');
       return;
@@ -225,7 +227,7 @@ export default function VoicePanel() {
     }
 
     const duration = region.end - region.start;
-    console.log('[VoicePanel] A/B duration', duration);
+    logInfo('VoicePanel', 'A/B duration validated', { duration, region });
     if (duration < 0.5) {
       setError('La referencia A-B es muy corta. Selecciona al menos 0.5 segundos.');
       return;
@@ -252,10 +254,10 @@ export default function VoicePanel() {
       };
 
       setCurrentVoiceReference(voiceRef);
-      console.log('[VoicePanel] Reference exported', voiceRef);
+      logInfo('VoicePanel', 'Reference exported', voiceRef);
     } catch (err) {
       const msg = 'Export failed: ' + String(err);
-      console.error('[VoicePanel]', msg);
+      logError('VoicePanel', 'Export A-B reference failed', err, { region, clipId: activeClipId });
       setError(msg);
     }
   }, [activeClipId, clips, region, setCurrentVoiceReference]);
@@ -286,6 +288,7 @@ export default function VoicePanel() {
         setError('Subtitle extraction failed: ' + (result.error || 'No subtitles found'));
       }
     } catch (err) {
+      logError('VoicePanel', 'Subtitle extraction failed', err, { region, clipId: activeClipId, trackIndex: selectedSubtitleTrack });
       setError('Subtitle extraction error: ' + String(err));
     }
   }, [activeClipId, clips, region, setRefText]);
@@ -327,6 +330,7 @@ export default function VoicePanel() {
         setError('ASR transcription failed: ' + (result.error || 'No text returned'));
       }
     } catch (err) {
+      logError('VoicePanel', 'ASR transcription failed', err, { region, clipId: activeClipId, language: options.language });
       setError('ASR transcription error: ' + String(err));
     } finally {
       setIsTranscribing(false);
@@ -345,7 +349,7 @@ export default function VoicePanel() {
       });
       setWaveform(wf);
     } catch (err) {
-      console.error('[VoicePanel] Failed to re-extract waveform for audio track', err);
+      logError('VoicePanel', 'Re-extract waveform for audio track failed', err, { clipId: activeClipId, trackIndex: index });
     }
   }, [activeClipId, clips, setSelectedAudioTrack, setWaveform]);
 
@@ -386,6 +390,25 @@ export default function VoicePanel() {
     }
 
     setIsGenerating(true);
+    const operationContext = {
+      mode: currentVoiceReference ? 'reference' : 'from_clip',
+      textLength: trimmed.length,
+      refDuration: currentVoiceReference?.duration ?? (region.end - region.start),
+      options: {
+        speed: options.speed,
+        num_step: options.num_step,
+        guidance_scale: options.guidance_scale,
+        denoise: options.denoise,
+        postprocess_output: options.postprocess_output,
+        language: options.language,
+        instruct: options.instruct,
+        duration: options.duration,
+        t_shift: options.t_shift,
+      },
+    };
+    logInfo('VoicePanel', 'Generation started', operationContext);
+    const startTime = performance.now();
+
     try {
       let result: GenerateResult;
 
@@ -431,18 +454,30 @@ export default function VoicePanel() {
         result = await invoke<GenerateResult>('generate_from_clip', { payload });
       }
 
-      if (result.success && result.audio_base64) {
+      const elapsedMs = Math.round(performance.now() - startTime);
+      if (result.success && (result.audio_base64 || result.output_path)) {
         const info = `${result.model_used || 'Optimized for this PC'} • ${(result.duration_seconds || 0).toFixed(2)}s`;
-        setLastGenerated(result.audio_base64, result.output_path || null, info);
-        await playAudio(`data:audio/wav;base64,${result.audio_base64}`);
-      } else if (result.success && result.output_path) {
-        const info = `${result.model_used || ''} • ${(result.duration_seconds || 0).toFixed(2)}s`;
-        setLastGenerated(null, result.output_path, info);
-        await playAudio(convertFileSrc(result.output_path));
+        logInfo('VoicePanel', 'Generation succeeded', {
+          durationSeconds: result.duration_seconds,
+          modelUsed: result.model_used,
+          elapsedMs,
+          hasBase64: !!result.audio_base64,
+          outputPath: result.output_path,
+        });
+        if (result.audio_base64) {
+          setLastGenerated(result.audio_base64, result.output_path || null, info);
+          await playAudio(`data:audio/wav;base64,${result.audio_base64}`);
+        } else {
+          setLastGenerated(null, result.output_path!, info);
+          await playAudio(convertFileSrc(result.output_path!));
+        }
       } else {
+        logError('VoicePanel', 'Generation returned failure', result.error_message || 'unknown', { elapsedMs, ...operationContext });
         setError('Generación fallida: ' + (result.error_message || 'Error desconocido'));
       }
     } catch (err) {
+      const elapsedMs = Math.round(performance.now() - startTime);
+      logError('VoicePanel', 'Generation threw exception', err, { elapsedMs, ...operationContext });
       setError('Error: ' + String(err));
     } finally {
       setIsGenerating(false);
@@ -500,6 +535,7 @@ export default function VoicePanel() {
       await writeFile(path, bytes);
       setError(null);
     } catch (err) {
+      logError('VoicePanel', 'Export generated audio failed', err);
       setError('Export failed: ' + String(err));
     } finally {
       setExporting(false);

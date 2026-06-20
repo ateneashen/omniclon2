@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import { ErrorBoundary } from './ErrorBoundary';
+import { logError } from './lib/log';
 import './index.css';
 
 // Global visible error handler: reuse a single container so repeated errors don't flood the page.
@@ -22,10 +23,12 @@ const updateGlobalError = (header: string, detail: string) => {
 };
 
 window.onerror = (message, _source, _lineno, _colno, error) => {
+  logError('GlobalErrorHandler', 'window.onerror', error ?? message, { message: String(message) });
   updateGlobalError('GLOBAL ERROR', `${message}\n\n${error?.stack || ''}`);
 };
 
 window.addEventListener('unhandledrejection', (event) => {
+  logError('GlobalErrorHandler', 'unhandledrejection', event.reason, { reason: String(event.reason) });
   updateGlobalError('UNHANDLED PROMISE REJECTION', String(event.reason));
 });
 

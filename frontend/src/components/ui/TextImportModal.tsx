@@ -3,6 +3,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
+import { logError } from '../../lib/log';
 
 interface TextImportModalProps {
   isOpen: boolean;
@@ -117,6 +118,7 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
       setSelectedRow(0);
       setSelectedCol(0);
     } catch (err) {
+      logError('TextImportModal', 'Load file failed', err, { filePath });
       setError('Failed to load file: ' + String(err));
       setSheets([]);
     } finally {

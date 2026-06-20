@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import { useEditorStore } from '../../stores/editorStore';
+import { logError } from '../../lib/log';
 import { MediaClip, WaveformData, AudioTrack } from '../../types';
 
 const VIDEO_EXTENSIONS = ['mp4', 'mkv', 'mov', 'avi', 'webm'];
@@ -82,7 +83,7 @@ export default function MediaPanel() {
           setSelectedAudioTrack(null);
         }
       } catch (audioErr) {
-        console.error('[MediaPanel] audio_tracks failed', audioErr);
+        logError('MediaPanel', 'audio_tracks detection failed', audioErr, { path: clip.path });
         setAudioTracks([]);
         setSelectedAudioTrack(null);
       }
@@ -95,7 +96,7 @@ export default function MediaPanel() {
       setWaveform(wf);
     } catch (err) {
       const message = 'Failed to load video: ' + String(err);
-      console.error(message);
+      logError('MediaPanel', 'importClip failed', err, { path });
       setLastError(message);
     } finally {
       setIsImporting(false);
@@ -111,6 +112,7 @@ export default function MediaPanel() {
       if (!selected) return;
       await importClip(selected as string);
     } catch (err) {
+      logError('MediaPanel', 'Load video dialog failed', err);
       setLastError('Dialog failed: ' + String(err));
     }
   }, [importClip]);

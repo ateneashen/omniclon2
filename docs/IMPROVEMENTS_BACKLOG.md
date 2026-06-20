@@ -64,9 +64,9 @@
 
 | # | Improvement | Notes | Risk |
 |---|-------------|-------|------|
-| 6.1 | **Centralized error logging** | Ensure every `catch` sends to Rust diagnostic log and console. | Low |
-| 6.2 | **Per-session operation log** | Log each generation with params, duration, success/failure for debugging. | Low |
-| 6.3 | **Recoverable crash handler** | `ErrorBoundary` already exists; verify it reports failures clearly. | Low |
+| 6.1 | **Centralized error logging** | Ensure every `catch` sends to Rust diagnostic log and console. | Low | **Done** |
+| 6.2 | **Per-session operation log** | Log each generation with params, duration, success/failure for debugging. | Low | **Done** |
+| 6.3 | **Recoverable crash handler** | `ErrorBoundary` already exists; verify it reports failures clearly. | Low | **Done** |
 
 ---
 

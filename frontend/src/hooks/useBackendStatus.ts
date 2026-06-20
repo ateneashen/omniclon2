@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { logError } from '../lib/log';
 import { BootstrapStatus } from '../types';
 
 export interface BackendStatusResult {
@@ -19,7 +20,7 @@ export function useBackendStatus(poll = true): BackendStatusResult {
       const bootstrap = await invoke<BootstrapStatus>('get_bootstrap_status');
       setStatus(bootstrap);
     } catch (err) {
-      console.error('[useBackendStatus] poll failed', err);
+      logError('useBackendStatus', 'Poll failed', err);
       setStatus({
         backend_status: { Failed: { error: String(err) } },
         is_healthy: false,

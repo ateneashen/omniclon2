@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
+import { logError } from '../lib/log';
 import { ModelStatus, ModelConfig, ModelInfo } from '../types';
 
 export interface ModelCatalog {
@@ -59,8 +60,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       });
     } catch (err) {
       const message = typeof err === 'string' ? err : 'Error al obtener estado de modelos';
+      logError('modelStore', 'fetchStatus failed', err);
       set({ error: message, isLoading: false });
-      console.error('[modelStore] fetchStatus failed:', err);
     }
   },
 
@@ -80,8 +81,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       });
     } catch (err) {
       const message = typeof err === 'string' ? err : 'Error al obtener catálogo de modelos';
+      logError('modelStore', 'fetchCatalog failed', err);
       set({ error: message, isLoading: false });
-      console.error('[modelStore] fetchCatalog failed:', err);
     }
   },
 
@@ -97,8 +98,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       return result;
     } catch (err) {
       const message = typeof err === 'string' ? err : 'Error al copiar modelos a carpeta dedicada';
+      logError('modelStore', 'copyToDedicated failed', err, { repoIds });
       set({ error: message, isLoading: false, isCopying: false });
-      console.error('[modelStore] copyToDedicated failed:', err);
       return null;
     }
   },
@@ -108,7 +109,7 @@ export const useModelStore = create<ModelState>((set, get) => ({
       const config = await invoke<ModelConfig>('get_model_config');
       return config;
     } catch (err) {
-      console.error('[modelStore] fetchConfig failed:', err);
+      logError('modelStore', 'fetchConfig failed', err);
       return null;
     }
   },
@@ -123,8 +124,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
       return true;
     } catch (err) {
       const message = typeof err === 'string' ? err : 'Error al cambiar modo de modelos';
+      logError('modelStore', 'switchMode failed', err, { mode });
       set({ error: message, isLoading: false });
-      console.error('[modelStore] switchMode failed:', err);
       return false;
     }
   },

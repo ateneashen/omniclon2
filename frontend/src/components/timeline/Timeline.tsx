@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../stores/editorStore';
+import { logError } from '../../lib/log';
 import { MediaClip, WaveformData } from '../../types';
 
 const PADDING = 48;
@@ -111,7 +112,7 @@ export default function Timeline() {
       audioTrackIndex: selectedAudioTrack ?? undefined,
     })
       .then((wf) => setWaveform(wf))
-      .catch((err) => console.error('Failed to re-extract waveform:', err));
+      .catch((err) => logError('Timeline', 'Failed to re-extract waveform', err));
   }, [zoom, effectivePixelsPerSecond, duration, activeClip, waveform, setWaveform, selectedAudioTrack]);
 
   // Draw timeline

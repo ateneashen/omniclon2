@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useEditorStore } from '../../stores/editorStore';
+import { logError } from '../../lib/log';
 import VideoTransportControls from './VideoTransportControls';
 
 export default function VideoPreview() {
@@ -173,7 +174,7 @@ export default function VideoPreview() {
           const code = target.error?.code ?? 'unknown';
           const message = target.error?.message ?? 'Could not load video';
           setVideoError(`Video error ${code}: ${message}`);
-          console.error('Video preview error:', target.error);
+          logError('VideoPreview', 'Video element error', message, { code, src: activeClip.path });
         }}
       />
 
