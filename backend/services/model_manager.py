@@ -15,10 +15,22 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
+
+# Optional: huggingface_hub is declared as a project dependency.
+# It may also be available transitively via transformers.
+try:
+    from huggingface_hub import snapshot_download, list_repo_files, get_hf_file_metadata
+    HF_AVAILABLE = True
+except Exception:  # pragma: no cover
+    snapshot_download = None  # type: ignore
+    list_repo_files = None  # type: ignore
+    get_hf_file_metadata = None  # type: ignore
+    HF_AVAILABLE = False
 
 
 # ============================================================
@@ -68,6 +80,17 @@ class CopyResult(BaseModel):
     total_copied: int = 0
 
 
+class DownloadJob(BaseModel):
+    """Estado de una descarga de modelo en curso o finalizada."""
+    repo_id: str
+    status: Literal["pending", "downloading", "completed", "failed"] = "pending"
+    progress_percent: float = 0.0
+    downloaded_bytes: int = 0
+    total_bytes: int | None = None
+    message: str = ""
+    error: str | None = None
+
+
 # ============================================================
 # ModelManager (clase principal)
 # ============================================================
@@ -95,6 +118,10 @@ class ModelManager:
         # Estado de operaciones largas (para UX elegante en B2+)
         self._copy_in_progress: bool = False
         self._last_copy_result: CopyResult | None = None
+
+        # Estado de descargas en curso (repo_id -> DownloadJob)
+        self._downloads: dict[str, DownloadJob] = {}
+        self._downloads_lock = threading.Lock()
 
     # ------------------------------------------------------------
     # Catálogo
@@ -496,3 +523,183 @@ class ModelManager:
 
         finally:
             self._copy_in_progress = False
+
+
+    # ============================================================
+    # Descarga de modelos desde Hugging Face (v1.1.0)
+    # ============================================================
+
+    def start_download(self, repo_id: str) -> DownloadJob:
+        """
+        Inicia (o reanuda consultando) la descarga de un modelo del catálogo.
+        La descarga corre en un hilo para no bloquear el loop de FastAPI.
+        """
+        if not HF_AVAILABLE:
+            return DownloadJob(
+                repo_id=repo_id,
+                status="failed",
+                message="huggingface_hub no está disponible.",
+                error="huggingface_hub no está instalado.",
+            )
+
+        with self._downloads_lock:
+            existing = self._downloads.get(repo_id)
+            if existing and existing.status in ("pending", "downloading"):
+                return existing
+            if existing and existing.status == "completed":
+                return existing
+
+            job = DownloadJob(repo_id=repo_id, status="pending", message="Iniciando descarga...")
+            self._downloads[repo_id] = job
+
+        thread = threading.Thread(target=self._do_download, args=(repo_id,), daemon=True)
+        thread.start()
+        return job
+
+    def get_download_progress(self, repo_id: str) -> DownloadJob | None:
+        """Devuelve el estado actual de una descarga."""
+        with self._downloads_lock:
+            job = self._downloads.get(repo_id)
+            return job.model_copy() if job else None
+
+    def list_active_downloads(self) -> list[DownloadJob]:
+        """Lista todas las descargas conocidas (activas o recientes)."""
+        with self._downloads_lock:
+            return [job.model_copy() for job in self._downloads.values()]
+
+    def _update_download_job(self, repo_id: str, **kwargs) -> None:
+        """Actualiza campos de un DownloadJob de forma thread-safe."""
+        with self._downloads_lock:
+            job = self._downloads.get(repo_id)
+            if job is None:
+                return
+            data = job.model_dump()
+            data.update(kwargs)
+            self._downloads[repo_id] = DownloadJob(**data)
+
+    def _estimate_repo_size(self, repo_id: str) -> int | None:
+        """Try to estimate total download size from remote file metadata."""
+        if not list_repo_files or not get_hf_file_metadata:
+            return None
+        try:
+            files = list_repo_files(repo_id)
+            total = 0
+            for filename in files:
+                try:
+                    meta = get_hf_file_metadata(filename, repo_id=repo_id)
+                    total += meta.size or 0
+                except Exception:
+                    continue
+            return total if total > 0 else None
+        except Exception:
+            return None
+
+    def _monitor_download_size(
+        self,
+        repo_id: str,
+        target_dir: Path,
+        expected_bytes: int | None,
+        stop_event: threading.Event,
+    ) -> None:
+        """Periodically updates DownloadJob with current folder size."""
+        while not stop_event.is_set():
+            stop_event.wait(1.5)
+            try:
+                if not target_dir.exists():
+                    continue
+                size = sum(
+                    f.stat().st_size for f in target_dir.rglob("*") if f.is_file()
+                )
+                pct = round((size / expected_bytes) * 100, 1) if expected_bytes and expected_bytes > 0 else 0.0
+                self._update_download_job(
+                    repo_id,
+                    downloaded_bytes=size,
+                    progress_percent=min(99.0, pct),
+                    message=f"Descargando {repo_id} ({self._human_size(size)}"
+                            f"{f' / {self._human_size(expected_bytes)}' if expected_bytes else ''})",
+                )
+            except Exception:
+                continue
+
+    @staticmethod
+    def _human_size(num_bytes: int) -> str:
+        for unit in ["B", "KB", "MB", "GB", "TB"]:
+            if abs(num_bytes) < 1024.0:
+                return f"{num_bytes:.1f} {unit}"
+            num_bytes /= 1024.0
+        return f"{num_bytes:.1f} PB"
+
+    def _do_download(self, repo_id: str) -> None:
+        """Ejecuta la descarga real usando huggingface_hub."""
+        catalog_entry = next((m for m in self._catalog if m["repo_id"] == repo_id), None)
+        if catalog_entry is None:
+            self._update_download_job(
+                repo_id,
+                status="failed",
+                message="Modelo no encontrado en el catálogo.",
+                error=f"{repo_id} no está en catalog.json",
+            )
+            return
+
+        local_folder = catalog_entry.get("local_folder") or repo_id.replace("/", "_")
+        target_dir = self.models_dir / local_folder
+
+        self._update_download_job(
+            repo_id,
+            status="downloading",
+            message=f"Descargando {repo_id}...",
+            total_bytes=None,
+        )
+
+        try:
+            # We run the (potentially long) download in this thread and update
+            # the job with folder-size progress periodically.
+            self._update_download_job(
+                repo_id,
+                status="downloading",
+                message=f"Descargando {repo_id}...",
+            )
+
+            # Pre-compute expected total size from remote file metadata when possible.
+            expected_bytes = self._estimate_repo_size(repo_id)
+            if expected_bytes:
+                self._update_download_job(repo_id, total_bytes=expected_bytes)
+
+            # Start a lightweight monitor that reports folder size growth.
+            stop_monitor = threading.Event()
+            monitor_thread = threading.Thread(
+                target=self._monitor_download_size,
+                args=(repo_id, target_dir, expected_bytes, stop_monitor),
+                daemon=True,
+            )
+            monitor_thread.start()
+
+            try:
+                # snapshot_download descarga todo el repositorio al directorio indicado.
+                snapshot_download(
+                    repo_id=repo_id,
+                    local_dir=str(target_dir),
+                    local_dir_use_symlinks=False,
+                    resume_download=True,
+                )
+            finally:
+                stop_monitor.set()
+                monitor_thread.join(timeout=2.0)
+
+            self._update_download_job(
+                repo_id,
+                status="completed",
+                progress_percent=100.0,
+                message=f"{repo_id} descargado correctamente.",
+            )
+            print(f"[ModelManager] Descarga completada: {repo_id} -> {target_dir}")
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"[ModelManager] ERROR descargando {repo_id}: {error_msg}")
+            self._update_download_job(
+                repo_id,
+                status="failed",
+                message=f"Error descargando {repo_id}.",
+                error=error_msg,
+            )

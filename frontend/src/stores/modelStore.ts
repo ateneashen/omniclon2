@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { invoke } from '@tauri-apps/api/core';
 import { logError } from '../lib/log';
-import { ModelStatus, ModelConfig, ModelInfo } from '../types';
+import { ModelStatus, ModelConfig, ModelInfo, DownloadJob } from '../types';
 
 export interface ModelCatalog {
   models: ModelInfo[];
@@ -23,6 +23,8 @@ interface ModelState {
   isCopying: boolean;
   error: string | null;
   lastFetched: number | null;
+  downloads: Record<string, DownloadJob>;
+  activeDownloadPollers: Record<string, number>;
 
   // Actions
   fetchStatus: () => Promise<void>;
@@ -31,12 +33,16 @@ interface ModelState {
   switchMode: (mode: 'shared' | 'dedicated') => Promise<boolean>;
   copyToDedicated: (repoIds: string[]) => Promise<CopyResult | null>;
   getLastCopyResult: () => CopyResult | null;
+  startDownload: (repoId: string) => Promise<DownloadJob | null>;
+  fetchDownloadProgress: (repoId: string) => Promise<DownloadJob | null>;
+  stopDownloadPoll: (repoId: string) => void;
   refresh: () => Promise<void>;
 
   // Helpers
   getActiveModels: () => ModelInfo[];
   getMissingCriticalModels: () => ModelInfo[];
   isUsingShared: () => boolean;
+  isDownloadingModel: (repoId: string) => boolean;
 }
 
 export const useModelStore = create<ModelState>((set, get) => ({
@@ -46,6 +52,8 @@ export const useModelStore = create<ModelState>((set, get) => ({
   isCopying: false,
   error: null,
   lastFetched: null,
+  downloads: {},
+  activeDownloadPollers: {},
 
   fetchStatus: async () => {
     set({ isLoading: true, error: null });
@@ -104,6 +112,61 @@ export const useModelStore = create<ModelState>((set, get) => ({
     }
   },
 
+  startDownload: async (repoId: string) => {
+    try {
+      const job = await invoke<DownloadJob>('download_model', { repoId });
+      set((state) => ({
+        downloads: { ...state.downloads, [repoId]: job },
+      }));
+
+      // Start polling if not already polling this model
+      if (!get().activeDownloadPollers[repoId]) {
+        const interval = window.setInterval(async () => {
+          const latest = await get().fetchDownloadProgress(repoId);
+          if (latest && (latest.status === 'completed' || latest.status === 'failed')) {
+            get().stopDownloadPoll(repoId);
+            get().fetchStatus();
+          }
+        }, 1500);
+        set((state) => ({
+          activeDownloadPollers: { ...state.activeDownloadPollers, [repoId]: interval },
+        }));
+      }
+
+      return job;
+    } catch (err) {
+      const message = typeof err === 'string' ? err : `Error al iniciar descarga de ${repoId}`;
+      logError('modelStore', 'startDownload failed', err, { repoId });
+      set({ error: message });
+      return null;
+    }
+  },
+
+  fetchDownloadProgress: async (repoId: string) => {
+    try {
+      const job = await invoke<DownloadJob>('get_download_progress', { repoId });
+      set((state) => ({
+        downloads: { ...state.downloads, [repoId]: job },
+      }));
+      return job;
+    } catch (err) {
+      logError('modelStore', 'fetchDownloadProgress failed', err, { repoId });
+      return null;
+    }
+  },
+
+  stopDownloadPoll: (repoId: string) => {
+    const interval = get().activeDownloadPollers[repoId];
+    if (interval) {
+      window.clearInterval(interval);
+      set((state) => {
+        const next = { ...state.activeDownloadPollers };
+        delete next[repoId];
+        return { activeDownloadPollers: next };
+      });
+    }
+  },
+
   fetchConfig: async () => {
     try {
       const config = await invoke<ModelConfig>('get_model_config');
@@ -150,5 +213,10 @@ export const useModelStore = create<ModelState>((set, get) => ({
   isUsingShared: () => {
     const { status } = get();
     return status?.config.mode === 'shared';
+  },
+
+  isDownloadingModel: (repoId: string) => {
+    const job = get().downloads[repoId];
+    return !!job && (job.status === 'pending' || job.status === 'downloading');
   },
 }));

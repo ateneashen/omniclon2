@@ -4,7 +4,7 @@
 
 **Clonación profesional de voz con flujo A/B Roll sobre vídeo.**
 
-[![Versión](https://img.shields.io/badge/version-v1.0.1-00b4d8)](https://github.com/ateneashen/omniclon2)
+[![Versión](https://img.shields.io/badge/version-v1.1.0-00b4d8)](https://github.com/ateneashen/omniclon2)
 [![Licencia](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Plataformas](https://img.shields.io/badge/platform-Windows-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.11%2B-yellow.svg)](https://www.python.org/)

@@ -99,6 +99,16 @@ export interface ModelStatus {
   last_copy_result?: any;        // Resultado de la última copia (B2)
 }
 
+export interface DownloadJob {
+  repo_id: string;
+  status: "pending" | "downloading" | "completed" | "failed";
+  progress_percent: number;
+  downloaded_bytes: number;
+  total_bytes?: number | null;
+  message: string;
+  error?: string | null;
+}
+
 // Voice generation tuning options (from /voice/generate_options)
 export interface GenerateOption {
   type: "float" | "int" | "bool" | "select" | "string";

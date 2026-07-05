@@ -1,4 +1,4 @@
-# Guía de usuario para novatos — OmniClon 2 v1.0.1
+# Guía de usuario para novatos — OmniClon 2 v1.1.0
 
 > Esta guía está escrita con lenguaje sencillo. Si ya eres desarrollador, consulta el `README.md` principal.
 
@@ -69,7 +69,7 @@ Si alguno dice "no se reconoce como comando", hay que instalarlo.
 4. Aparecerá una ventana negra (consola) con un menú.
 5. Escribe `1` y pulsa `Intro`.
 6. Espera. La primera vez puede tardar varios minutos porque compila código Rust.
-7. Se abrirá la ventana de **OmniClon 2**. Arriba verás el nombre y la versión `v1.0.1`.
+7. Se abrirá la ventana de **OmniClon 2**. Arriba verás el nombre y la versión `v1.1.0`.
 
 Para cerrar, cierra la ventana de la app o la consola negra.
 
@@ -168,7 +168,11 @@ Cuando la app esté abierta, sigue estos pasos:
   ```
   C:\AI\OmniClon2\data\models\k2-fsa_OmniVoice\model.safetensors
   ```
-- Si no está, descarga los pesos de `k2-fsa/OmniVoice` en Hugging Face y colócalos ahí.
+- Si no está, la app puede descargarlo automáticamente:
+  - Ve a la pestaña **Models**.
+  - Pulsa **Descargar** junto a **OmniVoice (k2-fsa)**.
+  - Espera a que termine la descarga (~3.3 GB).
+- También puedes descargar los pesos manualmente desde `k2-fsa/OmniVoice` en Hugging Face y colocarlos ahí.
 - **Si copiaste el `.exe` a otra carpeta**, la app busca los modelos en una carpeta `data` junto al exe. Es decir, si tu exe está en:
   ```
   D:\MisApps\OmniClon2\omniclon2.exe

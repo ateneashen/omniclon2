@@ -170,6 +170,41 @@ async def copy_models_to_dedicated(payload: dict):
     return result.model_dump()
 
 
+@app.post("/models/download/{repo_id:path}")
+async def download_model(repo_id: str):
+    """
+    Inicia la descarga de un modelo desde Hugging Face.
+    La descarga es asíncrona; consulta /models/download_progress/{repo_id} para el progreso.
+    """
+    if model_manager is None:
+        return {"error": "ModelManager no inicializado"}
+
+    job = model_manager.start_download(repo_id)
+    return job.model_dump()
+
+
+@app.get("/models/download_progress/{repo_id:path}")
+async def get_download_progress(repo_id: str):
+    """Devuelve el progreso de una descarga en curso o finalizada."""
+    if model_manager is None:
+        return {"error": "ModelManager no inicializado"}
+
+    job = model_manager.get_download_progress(repo_id)
+    if job is None:
+        return {"error": "No hay descarga conocida para este modelo", "repo_id": repo_id}
+    return job.model_dump()
+
+
+@app.get("/models/downloads")
+async def list_downloads():
+    """Lista todas las descargas activas o recientes."""
+    if model_manager is None:
+        return {"error": "ModelManager no inicializado"}
+
+    jobs = model_manager.list_active_downloads()
+    return {"downloads": [job.model_dump() for job in jobs]}
+
+
 # ============================================================
 # Voice Generation Endpoints (Core Cloning Flow)
 # ============================================================

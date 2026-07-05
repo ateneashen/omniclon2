@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "1.0.1"
+version = "1.1.0"
 description = "OmniClon 2 Python backend — autonomous voice cloning with k2-fsa/OmniVoice"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,6 +21,7 @@ dependencies = [
     "psutil>=7.2.2",
     "setuptools>=75.0,<82",
     "openai-whisper>=20250625",
+    "huggingface-hub>=0.20",
 ]
 
 [[tool.uv.index]]

@@ -8,6 +8,11 @@ fn backend_url(path: &str) -> String {
     format!("{}:{}{}", BACKEND_BASE, BACKEND_PORT, path)
 }
 
+/// URL-encode a Hugging Face repo id so it can be used as a path parameter.
+fn encode_repo_id(repo_id: &str) -> String {
+    repo_id.replace("/", "%2F")
+}
+
 /// Llama al backend Python y devuelve el ModelStatus completo.
 #[command]
 pub async fn get_model_status(app: AppHandle) -> Result<serde_json::Value, String> {
@@ -163,6 +168,67 @@ pub async fn copy_models_to_dedicated(
         Err(e) => {
             let msg = format!("Fallo al copiar modelos a dedicada: {}", e);
             diagnostics::log_error(&app, "Models", "copy_models_to_dedicated falló", &msg, None);
+            Err(msg)
+        }
+    }
+}
+
+/// Inicia la descarga de un modelo desde Hugging Face.
+#[command]
+pub async fn download_model(app: AppHandle, repo_id: String) -> Result<serde_json::Value, String> {
+    diagnostics::log_diagnostic(
+        &app,
+        "INFO",
+        "Models",
+        &format!("download_model llamado para {}", repo_id),
+        None,
+    );
+
+    let url = backend_url(&format!("/models/download/{}", encode_repo_id(&repo_id)));
+
+    match ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .timeout(std::time::Duration::from_millis(10_000))
+        .call()
+    {
+        Ok(response) => {
+            let json: serde_json::Value = response.into_json()
+                .map_err(|e| format!("Error parseando respuesta: {}", e))?;
+            Ok(json)
+        }
+        Err(e) => {
+            let msg = format!("Fallo al iniciar descarga de {}: {}", repo_id, e);
+            diagnostics::log_error(&app, "Models", "download_model falló", &msg, None);
+            Err(msg)
+        }
+    }
+}
+
+/// Consulta el progreso de una descarga en curso.
+#[command]
+pub async fn get_download_progress(app: AppHandle, repo_id: String) -> Result<serde_json::Value, String> {
+    diagnostics::log_diagnostic(
+        &app,
+        "INFO",
+        "Models",
+        &format!("get_download_progress llamado para {}", repo_id),
+        None,
+    );
+
+    let url = backend_url(&format!("/models/download_progress/{}", encode_repo_id(&repo_id)));
+
+    match ureq::get(&url)
+        .timeout(std::time::Duration::from_millis(4_000))
+        .call()
+    {
+        Ok(response) => {
+            let json: serde_json::Value = response.into_json()
+                .map_err(|e| format!("Error parseando respuesta: {}", e))?;
+            Ok(json)
+        }
+        Err(e) => {
+            let msg = format!("Fallo al consultar progreso de {}: {}", repo_id, e);
+            diagnostics::log_error(&app, "Models", "get_download_progress falló", &msg, None);
             Err(msg)
         }
     }

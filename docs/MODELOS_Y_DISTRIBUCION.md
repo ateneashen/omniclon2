@@ -126,9 +126,14 @@ A la carpeta de datos de la app instalada (normalmente `%LOCALAPPDATA%\com.omnic
 
 Para evitar que el usuario final tenga que copiar modelos a mano, se pueden implementar varias mejoras progresivas:
 
-### 1. Downloader integrado (recomendado para v1.1.0)
+### 1. Downloader integrado ✅ Implementado en v1.1.0
 
-Añadir una pantalla en el primer arranque que permita descargar `k2-fsa/OmniVoice` directamente desde Hugging Face.
+La app ahora permite descargar modelos directamente desde Hugging Face:
+
+- Botón **Descargar** en cada modelo del catálogo que no esté instalado.
+- Botón **Descargar todos los faltantes** en la pestaña **Models**.
+- Prompt integrado en el **BootstrapSplash** cuando falta el modelo crítico `k2-fsa/OmniVoice`.
+- Progreso visual con polling al backend.
 
 **Ventajas:**
 - El usuario no necesita saber dónde descargar ni dónde copiar.
@@ -139,11 +144,12 @@ Añadir una pantalla en el primer arranque que permita descargar `k2-fsa/OmniVoi
 - Requiere conexión a internet en el primer uso.
 - Descargar varios GB puede tardar.
 
-**Implementación sugerida:**
-- Extender `backend/services/model_manager.py` con un método `download_model(repo_id)`.
-- Usar `huggingface_hub` o descargas directas con progreso.
-- Mostrar una barra de progreso en el BootstrapSplash o en un wizard de primera ejecución.
-- Persistir el progreso para poder reanudar.
+**Implementación:**
+- `backend/services/model_manager.py` tiene `start_download(repo_id)`, `get_download_progress(repo_id)` y `list_active_downloads()`.
+- Usa `huggingface_hub.snapshot_download()` con reanudación automática.
+- Endpoints: `POST /models/download/{repo_id:path}`, `GET /models/download_progress/{repo_id:path}`.
+- Comandos Tauri: `download_model`, `get_download_progress`.
+- UI: `ModelRow.tsx`, `ModelsPanel.tsx`, `ModelsSplashSection.tsx`.
 
 ### 2. Empaquetar modelos dentro del instalador
 

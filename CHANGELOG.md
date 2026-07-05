@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-07-05
+
+### Added
+- **Automatic model downloader**: download missing models directly from Hugging Face inside the app.
+- Progress tracking with backend polling for model downloads.
+- Download buttons in Models panel and per-model rows.
+- Bulk "Download all missing" action in Models panel.
+- Integrated download prompt in BootstrapSplash when the critical voice-cloning model is missing.
+
+### Changed
+- Bumped all manifests and UI version badge to v1.1.0.
+
+---
+
 ## [1.0.1] - 2026-07-05
 
 ### Added

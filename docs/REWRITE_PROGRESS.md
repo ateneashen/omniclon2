@@ -1,5 +1,41 @@
 # OmniClon 2 — Rewrite Progress Log
 
+## 2026-07-05 — v1.1.0 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Add automatic model downloader from Hugging Face and bump to v1.1.0.
+
+### Changes Made
+1. **Backend downloader**
+   - Added `huggingface_hub` dependency.
+   - Added `DownloadJob` model and thread-safe download registry to `ModelManager`.
+   - Implemented `start_download()`, `get_download_progress()`, `list_active_downloads()`.
+   - Downloads use `snapshot_download()` with resume support.
+   - Added `POST /models/download/{repo_id:path}` and `GET /models/download_progress/{repo_id:path}` endpoints.
+2. **Rust/Tauri**
+   - Added `download_model` and `get_download_progress` commands.
+   - URL-encode repo ids with `/` for the path parameter.
+3. **Frontend**
+   - Added `DownloadJob` type and download state/actions to `modelStore.ts`.
+   - Added download buttons and progress UI to `ModelRow.tsx`.
+   - Added bulk "Download all missing" button to `ModelsPanel.tsx`.
+   - Added critical model download prompt to `ModelsSplashSection.tsx` in the bootstrap splash.
+4. **Version bump**
+   - All manifests bumped to `1.1.0`.
+   - Updated `CHANGELOG.md`, `README.md`, `docs/GUIA_USUARIO.md`, `docs/MODELOS_Y_DISTRIBUCION.md`.
+
+### Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+- Manual test: downloaded `KittenML/kitten-tts-mini-0.8` via backend endpoint successfully.
+
+### Commit & Tag
+- Release commit: `release: v1.1.0 — automatic Hugging Face model downloader`
+- Annotated tag: `v1.1.0`
+
+---
+
 **Living document.** Every significant step, decision, problem found, and solution is recorded here chronologically.  
 This is the primary source of truth for the history of this clean rewrite.
 

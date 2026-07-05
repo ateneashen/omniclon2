@@ -306,7 +306,10 @@ pub fn run() {
             commands::models::get_model_config,
             commands::models::switch_model_mode,
             commands::models::get_model_catalog,
-            commands::models::copy_models_to_dedicated
+            commands::models::copy_models_to_dedicated,
+            // Model Download (v1.1.0)
+            commands::models::download_model,
+            commands::models::get_download_progress,
         ])
         .setup(|app| {
             // Log that the app started (goes to our dedicated diagnostic logs)

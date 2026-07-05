@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Boxes, Copy } from 'lucide-react';
+import { Boxes, Copy, Download } from 'lucide-react';
 import { useModelStore } from '../../stores/modelStore';
 import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
 
@@ -7,7 +7,9 @@ export default function ModelsSplashSection() {
   const status = useModelStore((s) => s.status);
   const fetchStatus = useModelStore((s) => s.fetchStatus);
   const copyToDedicated = useModelStore((s) => s.copyToDedicated);
+  const startDownload = useModelStore((s) => s.startDownload);
   const isCopying = useModelStore((s) => s.isCopying);
+  const downloads = useModelStore((s) => s.downloads);
   const { status: voiceStatus } = useVoiceStore();
 
   useEffect(() => {
@@ -23,6 +25,10 @@ export default function ModelsSplashSection() {
     !m.installed && (m.role === 'VoiceClone' || m.role === 'TTS')
   ).length ?? 0;
 
+  const criticalModel = status?.models?.find((m) => m.role === 'VoiceClone');
+  const criticalDownload = criticalModel ? downloads[criticalModel.repo_id] : null;
+  const isDownloadingCritical = criticalDownload?.status === 'pending' || criticalDownload?.status === 'downloading';
+
   const handleQuickCopy = async () => {
     if (!status) return;
 
@@ -33,6 +39,11 @@ export default function ModelsSplashSection() {
 
     if (toCopy.length === 0) return;
     await copyToDedicated(toCopy);
+  };
+
+  const handleDownloadCritical = async () => {
+    if (!criticalModel) return;
+    await startDownload(criticalModel.repo_id);
   };
 
   return (
@@ -54,14 +65,27 @@ export default function ModelsSplashSection() {
         </div>
 
         {missingCritical > 0 && (
-          <button
-            onClick={handleQuickCopy}
-            disabled={isCopying || !status}
-            className="nle-btn nle-btn--primary shrink-0 text-[10px]"
-          >
-            <Copy size={11} />
-            {isCopying ? 'Copiando…' : `${missingCritical} críticos`}
-          </button>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={handleDownloadCritical}
+              disabled={isDownloadingCritical || !criticalModel}
+              className="nle-btn nle-btn--primary shrink-0 text-[10px]"
+            >
+              <Download size={11} />
+              {isDownloadingCritical
+                ? `${Math.round(criticalDownload?.progress_percent ?? 0)}%`
+                : `${missingCritical} descargar`}
+            </button>
+
+            <button
+              onClick={handleQuickCopy}
+              disabled={isCopying || !status}
+              className="nle-btn shrink-0 text-[10px]"
+            >
+              <Copy size={11} />
+              {isCopying ? 'Copiando…' : 'Copiar'}
+            </button>
+          </div>
         )}
       </div>
 
@@ -75,6 +99,20 @@ export default function ModelsSplashSection() {
         {mode === 'shared' && missingCritical === 0 && 'Usando modelos compartidos de OmniVoice.'}
         {mode === 'dedicated' && 'Usando tu propia copia de modelos. Excelente para autonomía.'}
       </p>
+
+      {isDownloadingCritical && (
+        <div className="mt-3">
+          <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#00b4d8] transition-all duration-500"
+              style={{ width: `${criticalDownload?.progress_percent ?? 0}%` }}
+            />
+          </div>
+          <p className="text-[9px] text-white/50 mt-1">
+            {criticalDownload?.message ?? 'Descargando modelo principal...'}
+          </p>
+        </div>
+      )}
 
       {voiceStatus?.primary_cloning_model && (
         <div className="mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-emerald-300/85">

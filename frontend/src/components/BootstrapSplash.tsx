@@ -169,7 +169,7 @@ export default function BootstrapSplash({ backendStatus }: Props) {
             <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">OmniClon 2</h1>
             <p className="text-sm text-white/50 mt-1">Voice Clone Studio</p>
           </div>
-          <span className="nle-badge text-white/35 normal-case tracking-normal shrink-0">Phase 0</span>
+          <span className="nle-badge text-white/35 normal-case tracking-normal shrink-0">v1.1.0</span>
         </div>
 
         <div className="nle-panel p-4 mb-6">
