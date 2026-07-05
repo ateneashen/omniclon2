@@ -216,6 +216,7 @@ pub fn spawn_backend(
 
     let mut cmd = Command::new(&python);
     cmd.env("PYTHONUNBUFFERED", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
     cmd.env("OMNICLON2_DATA_DIR", resolve_data_dir(app));
     cmd.env("NO_PROXY", "127.0.0.1,localhost");
     cmd.env("no_proxy", "127.0.0.1,localhost");

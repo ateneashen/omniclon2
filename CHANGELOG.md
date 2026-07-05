@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-07-05
+
+### Fixed
+- `/generate_from_clip` no longer returns HTTP 500 when OmniVoice rejects an unsupported `instruct` containing non-ASCII characters.
+- Backend stdout/stderr forced to UTF-8 to prevent `UnicodeEncodeError` crashes on Windows when printing error messages with Chinese text.
+- Invalid generation requests now return HTTP 400 instead of raising an unhandled 500.
+
 ## [1.1.0] - 2026-07-05
 
 ### Added

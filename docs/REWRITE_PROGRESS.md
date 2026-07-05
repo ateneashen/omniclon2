@@ -1,5 +1,32 @@
 # OmniClon 2 — Rewrite Progress Log
 
+## 2026-07-05 — v1.1.1 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Fix the standalone `/generate_from_clip` HTTP 500 caused by unsupported `instruct` values and Windows cp1252 encoding.
+
+### Changes Made
+1. **Backend encoding safety**
+   - Forced `sys.stdout`/`sys.stderr` to UTF-8 in `backend/main.py` so OmniVoice error messages with Chinese characters no longer trigger `UnicodeEncodeError`.
+   - Added `PYTHONIOENCODING=utf-8` to the backend environment in Tauri.
+2. **Better error handling**
+   - `/generate` and `/generate_from_clip` now catch `ValidationError` / `ValueError` and return HTTP 400 with a clear detail message.
+3. **Version bump**
+   - All manifests bumped to `1.1.1`.
+   - Updated `CHANGELOG.md`, `README.md`, `docs/GUIA_USUARIO.md`.
+
+### Validation
+- `cargo check` ✓
+- `python -m py_compile backend/main.py` ✓
+- Root cause of the standalone 500 confirmed in `%LOCALAPPDATA%\com.omniclon.studio2\Logs\omniclon2-errors.log`.
+
+### Commit & Tag
+- Release commit: `release: v1.1.1 — fix generate_from_clip 500 on invalid instruct + UTF-8`
+- Annotated tag: `v1.1.1`
+
+---
+
 ## 2026-07-05 — v1.1.0 Released
 
 **Date:** 2026-07-05  

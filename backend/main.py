@@ -7,6 +7,7 @@ with excellent A/B Roll support and strong diagnostic logging.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -18,13 +19,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 
 # Ensure backend/ is importable when running via `uvicorn main:app`
 _backend_dir = os.path.dirname(os.path.abspath(__file__))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
+
+# Force UTF-8 for stdout/stderr so that diagnostics and error messages containing
+# non-ASCII characters (e.g. Chinese instructs from OmniVoice) never crash with
+# UnicodeEncodeError on Windows.
+if sys.stdout and hasattr(sys.stdout, "buffer"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
+if sys.stderr and hasattr(sys.stderr, "buffer"):
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", line_buffering=True)
 
 # ============================================================
 # Model Management (Fase B1)
@@ -228,6 +238,8 @@ async def generate_voice(payload: dict):
         else:
             print(f"[backend] [GENERATE] failed error={result.error_message}")
         return result.model_dump()
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Solicitud de generación inválida: {e}")
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[backend] [GENERATE] exception error={str(e)}\n{tb}")
@@ -256,6 +268,8 @@ async def generate_voice_from_clip(payload: dict):
         else:
             print(f"[backend] [GENERATE_FROM_CLIP] failed error={result.error_message}")
         return result.model_dump()
+    except (ValidationError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Solicitud de generación desde clip inválida: {e}")
     except Exception as e:
         tb = traceback.format_exc()
         print(f"[backend] [GENERATE_FROM_CLIP] exception error={str(e)}\n{tb}")
