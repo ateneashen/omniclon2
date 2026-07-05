@@ -10,8 +10,9 @@ import VoicePanel from './components/panels/VoicePanel';
 import VideoPreview from './components/preview/VideoPreview';
 import Timeline from './components/timeline/Timeline';
 import ModelsPanel from './components/models/ModelsPanel';
+import LogsPanel from './components/panels/LogsPanel';
 
-type LeftTab = 'media' | 'models' | 'scripts';
+type LeftTab = 'media' | 'models' | 'scripts' | 'logs';
 
 function MainInterface() {
   const [leftTab, setLeftTab] = useState<LeftTab>('media');
@@ -24,7 +25,7 @@ function MainInterface() {
         {/* Left: Tabbed Panel (Media / Models) */}
         <div className="w-64 border-r border-white/[0.08] bg-[#121212] text-sm flex flex-col shrink-0">
           <div className="flex border-b border-white/[0.08] bg-[#161616]" role="tablist" aria-label="Left panel tabs">
-            {(['media', 'models', 'scripts'] as const).map((tab) => (
+            {(['media', 'models', 'scripts', 'logs'] as const).map((tab) => (
               <button
                 key={tab}
                 role="tab"
@@ -37,13 +38,13 @@ function MainInterface() {
                     : 'border-transparent text-white/40 hover:text-white/70'
                 }`}
               >
-                {tab === 'media' ? 'Media' : tab === 'models' ? 'Models' : 'Scripts'}
+                {tab === 'media' ? 'Media' : tab === 'models' ? 'Models' : tab === 'scripts' ? 'Scripts' : 'Logs'}
               </button>
             ))}
           </div>
 
           <div role="tabpanel" className="flex-1 min-h-0 overflow-hidden p-3">
-            {leftTab === 'media' ? <MediaPanel /> : leftTab === 'models' ? <ModelsPanel /> : <ScriptsPanel />}
+            {leftTab === 'media' ? <MediaPanel /> : leftTab === 'models' ? <ModelsPanel /> : leftTab === 'scripts' ? <ScriptsPanel /> : <LogsPanel />}
           </div>
         </div>
 

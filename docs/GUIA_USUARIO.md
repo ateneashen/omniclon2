@@ -1,4 +1,4 @@
-# Guía de usuario para novatos — OmniClon 2 v1.0.0
+# Guía de usuario para novatos — OmniClon 2 v1.0.1
 
 > Esta guía está escrita con lenguaje sencillo. Si ya eres desarrollador, consulta el `README.md` principal.
 
@@ -69,7 +69,7 @@ Si alguno dice "no se reconoce como comando", hay que instalarlo.
 4. Aparecerá una ventana negra (consola) con un menú.
 5. Escribe `1` y pulsa `Intro`.
 6. Espera. La primera vez puede tardar varios minutos porque compila código Rust.
-7. Se abrirá la ventana de **OmniClon 2**. Arriba verás el nombre y la versión `v1.0.0`.
+7. Se abrirá la ventana de **OmniClon 2**. Arriba verás el nombre y la versión `v1.0.1`.
 
 Para cerrar, cierra la ventana de la app o la consola negra.
 

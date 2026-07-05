@@ -16,6 +16,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
 use tauri::Manager;
 
 use crate::diagnostics;
@@ -245,6 +248,11 @@ pub fn spawn_backend(
 
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+
+    // Hide the console window on Windows so the backend runs silently.
+    // Logs are still captured via stdout/stderr pipes into our diagnostic files.
+    #[cfg(windows)]
+    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
 
     let mut child = cmd.spawn().map_err(|e| {
         let msg = format!("Failed to spawn backend process: {}", e);

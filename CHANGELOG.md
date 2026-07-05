@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-07-05
+
+### Added
+- New **Logs** tab in the left panel to view debug and error logs directly in the UI.
+- Auto-refreshing log viewer with copy-to-clipboard support.
+
+### Changed
+- Backend Python process now runs without a visible console window on Windows.
+- Captured backend output remains available in the Logs tab and diagnostic files.
+
+---
+
 ## [1.0.0] - 2026-07-05
 
 ### Added

@@ -5,6 +5,35 @@ This is the primary source of truth for the history of this clean rewrite.
 
 ---
 
+## 2026-07-05 — v1.0.1 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Polish the v1.0.0 release by hiding the backend console and surfacing logs inside the UI.
+
+### What Was Done
+1. **Hidden the backend Python console window** on Windows using `CREATE_NO_WINDOW`.
+2. **Added a Logs tab** in the left panel (`LogsPanel.tsx`) to view `omniclon2-debug.log` and `omniclon2-errors.log` directly in the app.
+3. **Bumped all manifests to `1.0.1`**:
+   - `frontend/package.json`
+   - `frontend/src-tauri/Cargo.toml`
+   - `frontend/src-tauri/tauri.conf.json`
+   - `backend/pyproject.toml`
+   - `frontend/src/lib/version.ts`
+4. **Updated `CHANGELOG.md`, `README.md`, `docs/GUIA_USUARIO.md`, and this file** to reflect v1.0.1.
+
+### Final Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+
+### Commit & Tag
+- Release commit: `release: v1.0.1 — hide backend console and add in-app logs panel`
+- Annotated tag: `v1.0.1`
+
+**Status:** v1.0.1 released.
+
+---
+
 ## 2026-07-05 — v1.0.0 Released
 
 **Date:** 2026-07-05  
