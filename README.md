@@ -175,6 +175,15 @@ OmniClon2/
 └── README.md
 ```
 
+## Distribución y modelos
+
+Para entender cómo empaquetar la app con los modelos de IA, opciones de descarga automática, y cómo preparar una distribución para otros usuarios, consulta [`docs/MODELOS_Y_DISTRIBUCION.md`](docs/MODELOS_Y_DISTRIBUCION.md).
+
+Resumen rápido:
+- El repo **no incluye pesos de modelo**.
+- Para distribuir la app, copia también `data/models/k2-fsa_OmniVoice/` junto al ejecutable.
+- En futuras versiones se planea un downloader integrado desde el primer arranque.
+
 ## Licencia
 
 [MIT](LICENSE) © OmniClon Team.
