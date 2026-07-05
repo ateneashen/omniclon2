@@ -480,6 +480,10 @@ class VoiceCloningService:
                 duration_seconds=duration,
                 model_used=model_used,
             )
+        except ValueError as e:
+            # Re-raise validation errors (e.g. unsupported instruct) so the API
+            # can return a clean HTTP 400 instead of silently falling back.
+            raise
         except Exception as e:
             print(f"[VoiceCloningService] Real OmniVoice.generate() failed: {e}")
             return None

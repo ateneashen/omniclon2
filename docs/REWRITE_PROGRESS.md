@@ -1,5 +1,32 @@
 # OmniClon 2 — Rewrite Progress Log
 
+## 2026-07-05 — v1.1.2 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Refine the `/generate_from_clip` fix so invalid instructs return HTTP 400 instead of placeholder fallback.
+
+### Changes Made
+1. **Backend behavior**
+   - `services/voice_cloning.py`: `_generate_with_k2fsa()` now re-raises `ValueError` (e.g. unsupported instruct) instead of swallowing it.
+   - This lets the FastAPI endpoint return **HTTP 400** with the exact OmniVoice validation message.
+2. **Release build**
+   - Rebuilt Tauri release (`omniclon2.exe`) for `v1.1.2`.
+   - Updated standalone test deployment in `C:\TESTING_RELEASE\omniclon2`.
+3. **Version bump**
+   - All manifests bumped to `1.1.2`.
+
+### Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+- Backend manual smoke test: `/health` OK, `/generate` with `instruct=speak with passion` returns HTTP 400.
+
+### Commit & Tag
+- Release commit: `release: v1.1.2 — invalid instruct now returns HTTP 400`
+- Annotated tag: `v1.1.2`
+
+---
+
 ## 2026-07-05 — v1.1.1 Released
 
 **Date:** 2026-07-05  
