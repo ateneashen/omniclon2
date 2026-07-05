@@ -51,6 +51,19 @@ fn get_logs_dir(app: tauri::AppHandle) -> String {
     diagnostics::logs_dir(&app).to_string_lossy().to_string()
 }
 
+/// Returns the default folder for saved video frame captures (creates it if needed).
+#[tauri::command]
+fn get_captures_dir(app: tauri::AppHandle) -> String {
+    let base = app
+        .path()
+        .app_local_data_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("C:\\AI\\OmniClon2\\data"));
+
+    let captures = base.join("Captures");
+    let _ = std::fs::create_dir_all(&captures);
+    captures.to_string_lossy().to_string()
+}
+
 /// Try to start the Python backend (if not already running).
 #[tauri::command]
 fn start_backend(app: tauri::AppHandle, state: tauri::State<'_, BackendState>) -> Result<String, String> {
@@ -269,6 +282,7 @@ pub fn run() {
             tail_debug,
             log_diagnostic_event,
             get_logs_dir,
+            get_captures_dir,
             start_backend,
             stop_backend,
             backend_health,
@@ -286,6 +300,7 @@ pub fn run() {
             commands::media::audio_tracks,
             commands::media::extract_waveform,
             commands::media::extract_segment,
+            commands::media::capture_video_frame,
             // Model Management (Fase B1)
             commands::models::get_model_status,
             commands::models::get_model_config,

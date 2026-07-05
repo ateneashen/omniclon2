@@ -306,6 +306,68 @@ pub async fn extract_segment(
     Ok(output_path.to_string_lossy().to_string())
 }
 
+/// Extract a single video frame at `time_seconds` and save it as PNG.
+/// Uses ffmpeg (avoids browser canvas CORS/taint issues with asset:// video).
+#[command]
+pub async fn capture_video_frame(
+    app: AppHandle,
+    path: String,
+    time_seconds: f64,
+    output_path: String,
+) -> Result<String, String> {
+    if !Path::new(&path).exists() {
+        return Err(format!("Video file not found: {}", path));
+    }
+
+    let time = time_seconds.max(0.0);
+    let output = Path::new(&output_path);
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+
+    diagnostics::log_diagnostic(
+        &app,
+        "INFO",
+        "Media",
+        "Capturing video frame",
+        Some(&format!("time={:.3}s out={}", time, output_path)),
+    );
+
+    let shell = app.shell();
+    // Seek after input for frame-accurate capture (slower than input seek but
+    // correct for a single-frame grab). Use -frames:v 1 to stop after one frame.
+    let ffmpeg_output = shell
+        .command("ffmpeg")
+        .args([
+            "-y",
+            "-i",
+            &path,
+            "-ss",
+            &time.to_string(),
+            "-frames:v",
+            "1",
+            "-update",
+            "1",
+            "-q:v",
+            "2",
+            &output_path,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("ffmpeg failed: {}", e))?;
+
+    if !ffmpeg_output.status.success() {
+        let stderr = String::from_utf8_lossy(&ffmpeg_output.stderr);
+        return Err(format!("ffmpeg frame capture error: {}", stderr));
+    }
+
+    if !output.exists() {
+        return Err("ffmpeg did not produce an output image".to_string());
+    }
+
+    Ok(output_path)
+}
+
 // --- WAV parser using the robust `hound` crate ---
 fn parse_wav_to_downsampled(path: &Path, target_points: usize) -> Result<(Vec<(f32, f32)>, hound::WavSpec), String> {
     let mut reader = hound::WavReader::open(path).map_err(|e| format!("WAV open error: {}", e))?;

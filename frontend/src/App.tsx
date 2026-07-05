@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useEditorStore } from './stores/editorStore';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useBackendStatus } from './hooks/useBackendStatus';
 
@@ -14,106 +13,48 @@ import ModelsPanel from './components/models/ModelsPanel';
 
 type LeftTab = 'media' | 'models' | 'scripts';
 
-function TimelineToolbar() {
-  const isPlaying = useEditorStore((s) => s.isPlaying);
-  const isLooping = useEditorStore((s) => s.isLooping);
-  const setPlaying = useEditorStore((s) => s.setPlaying);
-  const setCurrentTime = useEditorStore((s) => s.setCurrentTime);
-  const toggleLoop = useEditorStore((s) => s.toggleLoop);
-
-  return (
-    <div className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-white/10 bg-[#111]">
-      <button
-        onClick={() => setPlaying(!isPlaying)}
-        className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
-        aria-label={isPlaying ? 'Pause' : 'Play'}
-      >
-        {isPlaying ? 'Pause' : 'Play'}
-      </button>
-      <button
-        onClick={() => setCurrentTime(0)}
-        className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition"
-        aria-label="Reset time"
-      >
-        Reset
-      </button>
-      <button
-        onClick={toggleLoop}
-        className={`px-2 py-0.5 rounded transition ${isLooping ? 'bg-[#00b4d8]/30 text-[#00b4d8]' : 'bg-white/10 hover:bg-white/15'}`}
-        aria-label={isLooping ? 'Loop on' : 'Loop off'}
-      >
-        Loop {isLooping ? 'ON' : 'OFF'}
-      </button>
-    </div>
-  );
-}
-
 function MainInterface() {
   const [leftTab, setLeftTab] = useState<LeftTab>('media');
 
   return (
-    <div className="h-screen w-screen bg-[#0a0a0a] text-white flex flex-col overflow-hidden">
+    <div className="h-screen w-screen bg-[var(--nle-bg-app)] text-white flex flex-col overflow-hidden">
       <Header />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Tabbed Panel (Media / Models) */}
-        <div className="w-64 border-r border-white/10 p-3 text-sm flex flex-col shrink-0">
-          <div className="flex mb-3 border-b border-white/10" role="tablist" aria-label="Left panel tabs">
-            <button
-              role="tab"
-              aria-selected={leftTab === 'media'}
-              tabIndex={leftTab === 'media' ? 0 : -1}
-              onClick={() => setLeftTab('media')}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                leftTab === 'media'
-                  ? 'border-[#00b4d8] text-white'
-                  : 'border-transparent text-white/50 hover:text-white/80'
-              }`}
-            >
-              Media
-            </button>
-            <button
-              role="tab"
-              aria-selected={leftTab === 'models'}
-              tabIndex={leftTab === 'models' ? 0 : -1}
-              onClick={() => setLeftTab('models')}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                leftTab === 'models'
-                  ? 'border-[#00b4d8] text-white'
-                  : 'border-transparent text-white/50 hover:text-white/80'
-              }`}
-            >
-              Models
-            </button>
-            <button
-              role="tab"
-              aria-selected={leftTab === 'scripts'}
-              tabIndex={leftTab === 'scripts' ? 0 : -1}
-              onClick={() => setLeftTab('scripts')}
-              className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                leftTab === 'scripts'
-                  ? 'border-[#00b4d8] text-white'
-                  : 'border-transparent text-white/50 hover:text-white/80'
-              }`}
-            >
-              Scripts
-            </button>
+        <div className="w-64 border-r border-white/[0.08] bg-[#121212] text-sm flex flex-col shrink-0">
+          <div className="flex border-b border-white/[0.08] bg-[#161616]" role="tablist" aria-label="Left panel tabs">
+            {(['media', 'models', 'scripts'] as const).map((tab) => (
+              <button
+                key={tab}
+                role="tab"
+                aria-selected={leftTab === tab}
+                tabIndex={leftTab === tab ? 0 : -1}
+                onClick={() => setLeftTab(tab)}
+                className={`flex-1 px-2 py-2 text-[10px] font-semibold uppercase tracking-wider border-b-2 transition-colors ${
+                  leftTab === tab
+                    ? 'border-[#00b4d8] text-white bg-white/[0.03]'
+                    : 'border-transparent text-white/40 hover:text-white/70'
+                }`}
+              >
+                {tab === 'media' ? 'Media' : tab === 'models' ? 'Models' : 'Scripts'}
+              </button>
+            ))}
           </div>
 
-          <div role="tabpanel" className="flex-1 min-h-0 overflow-hidden">
+          <div role="tabpanel" className="flex-1 min-h-0 overflow-hidden p-3">
             {leftTab === 'media' ? <MediaPanel /> : leftTab === 'models' ? <ModelsPanel /> : <ScriptsPanel />}
           </div>
         </div>
 
         {/* Center: Preview + Timeline */}
-        <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 bg-[#0a0a0a]">
           <VideoPreview />
-          <TimelineToolbar />
           <Timeline />
         </div>
 
-        {/* Right: Voice Panel */}
-        <div className="w-72 border-l border-white/10 p-3 text-sm flex flex-col shrink-0">
+        {/* Right: Voice / Inspector Panel */}
+        <div className="w-80 border-l border-white/[0.08] bg-[#121212] text-sm flex flex-col shrink-0 min-h-0 p-3">
           <VoicePanel />
         </div>
       </div>
@@ -148,7 +89,9 @@ function App() {
           <BootstrapSplash backendStatus={status} />
         </div>
       )}
-      <MainInterface />
+      <div className={showSplash && splashVisible ? 'invisible' : ''} aria-hidden={showSplash && splashVisible}>
+        <MainInterface />
+      </div>
     </>
   );
 }

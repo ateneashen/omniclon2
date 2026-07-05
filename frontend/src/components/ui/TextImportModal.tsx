@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { readFile } from '@tauri-apps/plugin-fs';
+import { FileSpreadsheet, X, FolderOpen } from 'lucide-react';
 import Papa from 'papaparse';
 import * as XLSX from 'xlsx';
 import { logError } from '../../lib/log';
@@ -31,13 +32,9 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
   const tableRef = useRef<HTMLDivElement>(null);
   const selectedCellRef = useRef<HTMLTableCellElement>(null);
 
-  const rows = useMemo(() => {
-    return sheets[activeSheet]?.rows ?? [];
-  }, [sheets, activeSheet]);
+  const rows = useMemo(() => sheets[activeSheet]?.rows ?? [], [sheets, activeSheet]);
 
-  const selectedText = useMemo(() => {
-    return rows[selectedRow]?.[selectedCol] ?? '';
-  }, [rows, selectedRow, selectedCol]);
+  const selectedText = useMemo(() => rows[selectedRow]?.[selectedCol] ?? '', [rows, selectedRow, selectedCol]);
 
   const reset = useCallback(() => {
     setFilePath(null);
@@ -103,7 +100,6 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
         throw new Error('Unsupported file type');
       }
 
-      // Filter out completely empty rows
       parsed = parsed.map((sheet) => ({
         ...sheet,
         rows: sheet.rows.filter((row) => row.some((cell) => cell.trim() !== '')),
@@ -124,9 +120,8 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
     } finally {
       setLoading(false);
     }
-  }, [parseCsv, parseExcel]);
+  }, [parseCsv, parseExcel, filePath]);
 
-  // Keyboard navigation
   useEffect(() => {
     if (!isOpen) return;
 
@@ -166,7 +161,6 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, rows, handleSelect, handleClose]);
 
-  // Scroll selected cell into view
   useEffect(() => {
     selectedCellRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [selectedRow, selectedCol]);
@@ -175,36 +169,30 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      className="nle-modal-overlay"
       onClick={(e) => {
         if (e.target === e.currentTarget) handleClose();
       }}
     >
-      <div className="w-full max-w-2xl max-h-[85vh] flex flex-col bg-[#1a1a1a] border border-white/15 rounded-lg shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h2 className="text-sm font-medium text-white">Import text from CSV / Excel</h2>
-          <button
-            onClick={handleClose}
-            className="text-white/50 hover:text-white text-lg leading-none"
-            aria-label="Close"
-          >
-            ×
+      <div className="nle-modal max-w-2xl" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+        <div className="nle-panel-header shrink-0">
+          <span id="import-modal-title" className="flex items-center gap-1.5 normal-case tracking-normal">
+            <FileSpreadsheet size={13} className="text-[#3ecf8e]" />
+            Importar texto (CSV / Excel)
+          </span>
+          <button type="button" onClick={handleClose} className="nle-btn nle-btn--icon" aria-label="Cerrar">
+            <X size={14} />
           </button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 min-h-0 p-4 flex flex-col gap-3 overflow-hidden">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={loadFile}
-              disabled={loading}
-              className="text-xs px-3 py-1.5 bg-[#00b4d8] text-black rounded hover:bg-[#0099b8] disabled:opacity-50 transition"
-            >
-              {loading ? 'Loading…' : 'Choose file…'}
+          <div className="flex items-center gap-2 min-w-0">
+            <button type="button" onClick={loadFile} disabled={loading} className="nle-btn nle-btn--primary shrink-0">
+              <FolderOpen size={12} />
+              {loading ? 'Cargando…' : 'Elegir archivo'}
             </button>
             {filePath && (
-              <div className="text-[10px] text-white/50 truncate flex-1" title={filePath}>
+              <div className="text-[10px] text-white/45 truncate flex-1 font-mono" title={filePath}>
                 {filePath}
               </div>
             )}
@@ -212,7 +200,7 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
 
           {sheets.length > 1 && (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-white/40">Sheet:</span>
+              <span className="text-[9px] text-white/40 uppercase tracking-wider">Hoja</span>
               <select
                 value={activeSheet}
                 onChange={(e) => {
@@ -220,7 +208,7 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
                   setSelectedRow(0);
                   setSelectedCol(0);
                 }}
-                className="bg-black/40 border border-white/20 rounded px-2 py-0.5 text-white text-xs focus:outline-none focus:border-[#00b4d8]/50"
+                className="nle-select max-w-[200px]"
               >
                 {sheets.map((s, i) => (
                   <option key={s.name} value={i} className="bg-[#1a1a1a]">
@@ -232,7 +220,7 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
           )}
 
           {error && (
-            <div className="text-[10px] text-red-300 bg-red-950/30 border border-red-500/30 rounded p-2">
+            <div className="text-[10px] text-red-300 bg-red-950/30 border border-red-500/30 rounded-md p-2">
               {error}
             </div>
           )}
@@ -241,13 +229,13 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
             <>
               <div
                 ref={tableRef}
-                className="flex-1 min-h-0 overflow-auto border border-white/10 rounded bg-black/30"
+                className="flex-1 min-h-0 overflow-auto border border-white/[0.08] rounded-md bg-black/30"
                 tabIndex={-1}
               >
                 <table className="w-full text-left border-collapse">
                   <tbody>
                     {rows.map((row, rIdx) => (
-                      <tr key={rIdx} className={rIdx === selectedRow ? 'bg-[#00b4d8]/15' : 'hover:bg-white/5'}>
+                      <tr key={rIdx} className={rIdx === selectedRow ? 'bg-[#00b4d8]/12' : 'hover:bg-white/[0.03]'}>
                         {row.map((cell, cIdx) => {
                           const isSelected = rIdx === selectedRow && cIdx === selectedCol;
                           return (
@@ -259,9 +247,9 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
                                 setSelectedCol(cIdx);
                               }}
                               className={[
-                                'px-2 py-1 text-[11px] border border-white/5 cursor-pointer whitespace-nowrap',
+                                'px-2 py-1 text-[11px] border border-white/[0.04] cursor-pointer whitespace-nowrap max-w-[240px] truncate',
                                 isSelected
-                                  ? 'bg-[#00b4d8]/30 text-white outline outline-1 outline-[#00b4d8]'
+                                  ? 'bg-[#00b4d8]/25 text-white outline outline-1 outline-[#00b4d8]/60'
                                   : 'text-white/70',
                               ].join(' ')}
                             >
@@ -275,36 +263,34 @@ export default function TextImportModal({ isOpen, onClose, onSelect }: TextImpor
                 </table>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <div className="text-[10px] text-white/40">Selected preview</div>
-                <div className="text-xs text-white bg-black/40 border border-white/20 rounded px-2 py-1 min-h-[2rem] max-h-24 overflow-auto">
-                  {selectedText || <span className="text-white/30">No cell selected</span>}
+              <div className="flex flex-col gap-1 shrink-0">
+                <div className="text-[9px] text-white/40 uppercase tracking-wider">Vista previa</div>
+                <div className="nle-input min-h-[2rem] max-h-24 overflow-auto">
+                  {selectedText || <span className="text-white/30">Ninguna celda seleccionada</span>}
                 </div>
               </div>
             </>
           )}
 
           {rows.length === 0 && !loading && !error && (
-            <div className="flex-1 flex items-center justify-center text-white/30 text-xs">
-              Load a CSV or Excel file to preview its contents.
+            <div className="nle-empty-state flex-1">
+              <FileSpreadsheet size={22} className="text-white/20 mb-2" />
+              Carga un CSV o Excel para previsualizar su contenido.
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-white/10">
-          <button
-            onClick={handleClose}
-            className="text-xs px-3 py-1.5 text-white/70 hover:text-white transition"
-          >
-            Cancel
+        <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-white/[0.06] shrink-0">
+          <button type="button" onClick={handleClose} className="nle-btn">
+            Cancelar
           </button>
           <button
+            type="button"
             onClick={handleSelect}
             disabled={!selectedText}
-            className="text-xs px-4 py-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50 transition"
+            className="nle-btn nle-btn--primary disabled:opacity-50"
           >
-            Select
+            Seleccionar
           </button>
         </div>
       </div>

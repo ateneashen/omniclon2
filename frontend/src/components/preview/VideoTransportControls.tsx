@@ -9,7 +9,11 @@ import {
   Repeat1,
   Volume2,
   VolumeX,
+  ChevronsLeft,
+  Camera,
+  FolderOutput,
 } from 'lucide-react';
+import NleIconButton from '../ui/NleIconButton';
 
 interface VideoTransportControlsProps {
   isPlaying: boolean;
@@ -22,15 +26,20 @@ interface VideoTransportControlsProps {
   onSeek: (time: number) => void;
   onToggleLoop: () => void;
   onToggleMute: () => void;
+  onCaptureFrame?: () => void;
+  onCaptureFrameAs?: () => void;
+  isCapturing?: boolean;
 }
 
-function formatTime(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = Math.floor(seconds % 60);
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`;
-  return `${pad(m)}:${pad(s)}`;
+function formatTimecode(seconds: number): string {
+  const totalMs = Math.max(0, Math.round(seconds * 1000));
+  const h = Math.floor(totalMs / 3600000);
+  const m = Math.floor((totalMs % 3600000) / 60000);
+  const s = Math.floor((totalMs % 60000) / 1000);
+  const ms = totalMs % 1000;
+  const pad = (n: number, len = 2) => n.toString().padStart(len, '0');
+  if (h > 0) return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms, 3)}`;
+  return `${pad(m)}:${pad(s)}.${pad(ms, 3)}`;
 }
 
 export default function VideoTransportControls({
@@ -44,6 +53,9 @@ export default function VideoTransportControls({
   onSeek,
   onToggleLoop,
   onToggleMute,
+  onCaptureFrame,
+  onCaptureFrameAs,
+  isCapturing = false,
 }: VideoTransportControlsProps) {
   const skip = useCallback(
     (delta: number) => {
@@ -66,109 +78,116 @@ export default function VideoTransportControls({
   const hasRegion = !!region && region.end > region.start;
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 pt-10 bg-gradient-to-t from-black/90 via-black/50 to-transparent flex flex-col items-center justify-end pointer-events-none">
-      <div className="pointer-events-auto flex items-center gap-2 bg-black/70 backdrop-blur-sm rounded-full px-4 py-2 border border-white/10 shadow-lg">
-        {/* Time */}
-        <div className="text-xs font-medium text-white/90 tabular-nums min-w-[92px] text-center select-none">
-          {formatTime(currentTime)} / {formatTime(duration)}
+    <div className="absolute bottom-0 left-0 right-0 px-2 sm:px-4 pb-2 sm:pb-3 pt-10 sm:pt-12 bg-gradient-to-t from-black/95 via-black/55 to-transparent flex flex-col items-center justify-end pointer-events-none z-20">
+      <div className="pointer-events-auto w-full max-w-3xl flex items-center gap-1.5 sm:gap-3 bg-[#1a1a1a]/92 backdrop-blur-md rounded-md px-2 sm:px-3 py-1.5 sm:py-2 border border-white/[0.08] shadow-2xl overflow-x-auto">
+        {/* Timecode block */}
+        <div className="flex flex-col min-w-[108px]">
+          <span className="text-[8px] uppercase tracking-widest text-white/35">Timecode</span>
+          <span className="nle-timecode text-sm text-[#f5c542] font-medium">
+            {formatTimecode(currentTime)}
+          </span>
+          <span className="nle-timecode text-[9px] text-white/40">
+            / {formatTimecode(duration)}
+          </span>
         </div>
 
-        <div className="w-px h-6 bg-white/10 mx-1" />
+        <div className="w-px h-10 bg-white/[0.08]" />
 
-        {/* Region jumps */}
-        <TransportButton
-          icon={<SkipBack size={18} />}
-          label="Go to region start (A)"
-          onClick={jumpToRegionStart}
-          disabled={!hasRegion}
-        />
+        {/* Transport cluster */}
+        <div className="flex items-center gap-0.5 flex-1 justify-center">
+          <NleIconButton
+            icon={<ChevronsLeft size={16} />}
+            label="Ir al inicio"
+            onClick={jumpToStart}
+            size="md"
+          />
+          <NleIconButton
+            icon={<SkipBack size={16} />}
+            label="Ir al punto A"
+            onClick={jumpToRegionStart}
+            disabled={!hasRegion}
+            size="md"
+          />
+          <NleIconButton
+            icon={<RotateCcw size={16} />}
+            label="Retroceder 5 segundos"
+            onClick={() => skip(-5)}
+            size="md"
+          />
 
-        {/* Skip backward */}
-        <TransportButton
-          icon={<RotateCcw size={18} />}
-          label="Skip back 5 seconds"
-          onClick={() => skip(-5)}
-        />
+          <button
+            type="button"
+            onClick={onPlayPause}
+            className="mx-1 w-11 h-11 rounded-md bg-[#00b4d8] text-black flex items-center justify-center hover:bg-[#33c4e0] active:scale-95 transition shadow-lg shadow-[#00b4d8]/20"
+            aria-label={isPlaying ? 'Pausar' : 'Reproducir'}
+            title={isPlaying ? 'Pausar' : 'Reproducir'}
+          >
+            {isPlaying ? (
+              <Pause size={20} fill="currentColor" />
+            ) : (
+              <Play size={20} fill="currentColor" className="ml-0.5" />
+            )}
+          </button>
 
-        {/* Play/Pause */}
-        <button
-          onClick={onPlayPause}
-          className="mx-1 w-12 h-12 rounded-full bg-[#00b4d8] text-black flex items-center justify-center hover:bg-[#0099b8] hover:scale-105 active:scale-95 transition shadow-md"
-          aria-label={isPlaying ? 'Pause' : 'Play'}
-          title={isPlaying ? 'Pause playback' : 'Start playback'}
-        >
-          {isPlaying ? <Pause size={22} fill="currentColor" /> : <Play size={22} fill="currentColor" className="ml-0.5" />}
-        </button>
+          <NleIconButton
+            icon={<SkipForward size={16} />}
+            label="Avanzar 5 segundos"
+            onClick={() => skip(5)}
+            size="md"
+          />
+          <NleIconButton
+            icon={<SkipForward size={16} />}
+            label="Ir al punto B"
+            onClick={jumpToRegionEnd}
+            disabled={!hasRegion}
+            size="md"
+          />
+        </div>
 
-        {/* Skip forward */}
-        <TransportButton
-          icon={<SkipForward size={18} />}
-          label="Skip forward 5 seconds"
-          onClick={() => skip(5)}
-        />
+        <div className="w-px h-10 bg-white/[0.08]" />
 
-        <TransportButton
-          icon={<SkipForward size={18} />}
-          label="Go to region end (B)"
-          onClick={jumpToRegionEnd}
-          disabled={!hasRegion}
-        />
+        {/* Audio / loop */}
+        <div className="flex items-center gap-0.5">
+          <NleIconButton
+            icon={isLooping ? <Repeat1 size={16} /> : <Repeat size={16} />}
+            label={isLooping ? 'Desactivar bucle A-B' : 'Bucle A-B'}
+            onClick={onToggleLoop}
+            active={isLooping}
+            size="md"
+          />
+          <NleIconButton
+            icon={muted ? <VolumeX size={16} /> : <Volume2 size={16} />}
+            label={muted ? 'Activar audio' : 'Silenciar'}
+            onClick={onToggleMute}
+            active={muted}
+            size="md"
+          />
+        </div>
 
-        <div className="w-px h-6 bg-white/10 mx-1" />
-
-        {/* Loop A/B */}
-        <TransportButton
-          icon={isLooping ? <Repeat1 size={18} /> : <Repeat size={18} />}
-          label={isLooping ? 'Disable A-B loop' : 'Loop A-B region'}
-          onClick={onToggleLoop}
-          active={isLooping}
-        />
-
-        {/* Mute */}
-        <TransportButton
-          icon={muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
-          label={muted ? 'Unmute video' : 'Mute video'}
-          onClick={onToggleMute}
-          active={muted}
-        />
-
-        <div className="w-px h-6 bg-white/10 mx-1" />
-
-        {/* Start */}
-        <TransportButton
-          icon={<span className="text-[10px] font-bold leading-none">|<br />←</span>}
-          label="Go to start"
-          onClick={jumpToStart}
-        />
+        {onCaptureFrame && (
+          <>
+            <div className="w-px h-10 bg-white/[0.08]" />
+            <div className="flex items-center gap-0.5">
+              <NleIconButton
+                icon={<Camera size={16} />}
+                label="Capturar frame (carpeta por defecto)"
+                onClick={onCaptureFrame}
+                disabled={isCapturing}
+                size="md"
+              />
+              {onCaptureFrameAs && (
+                <NleIconButton
+                  icon={<FolderOutput size={16} />}
+                  label="Guardar captura en otra carpeta…"
+                  onClick={onCaptureFrameAs}
+                  disabled={isCapturing}
+                  size="md"
+                />
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
-  );
-}
-
-interface TransportButtonProps {
-  icon: React.ReactNode;
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  active?: boolean;
-}
-
-function TransportButton({ icon, label, onClick, disabled, active }: TransportButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`
-        w-9 h-9 rounded-full flex items-center justify-center transition
-        ${active
-          ? 'bg-[#00b4d8]/20 text-[#00b4d8]'
-          : 'text-white/70 hover:text-white hover:bg-white/10'}
-        ${disabled ? 'opacity-30 cursor-not-allowed hover:bg-transparent hover:text-white/70' : ''}
-      `}
-      aria-label={label}
-      title={label}
-    >
-      {icon}
-    </button>
   );
 }

@@ -1,0 +1,22 @@
+# Normalize line endings to LF on checkout, except Windows batch files.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Treat generated Tauri schemas as generated files (suppress diff noise).
+frontend/src-tauri/gen/** linguist-generated=true
+
+# Treat binary files as binary (no diff, no line-ending conversion).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.icns binary
+*.wav binary
+*.mp3 binary
+*.mp4 binary
+*.safetensors binary
+*.bin binary
+*.onnx binary
+*.pt binary
+*.pth binary

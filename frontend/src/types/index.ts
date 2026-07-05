@@ -153,4 +153,7 @@ export interface ScriptItem {
   clipPath?: string | null;
   clipName?: string | null;
   region?: { start: number; end: number } | null;
+  voiceOptions?: GenerationOptions;
+  selectedAudioTrack?: number | null;
+  selectedSubtitleTrack?: number | null;
 }

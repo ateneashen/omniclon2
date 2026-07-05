@@ -162,28 +162,26 @@ export default function BootstrapSplash({ backendStatus }: Props) {
   const isReady = backendStatus?.is_healthy && currentStage === 'ready';
 
   return (
-    <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center z-50 text-white">
-      <div className="w-full max-w-[820px] px-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+    <div className="fixed inset-0 bg-[var(--nle-bg-app)] flex items-center justify-center z-50 text-white overflow-y-auto py-8">
+      <div className="w-full max-w-[820px] px-6 sm:px-8 my-auto">
+        <div className="flex items-center justify-between mb-6 sm:mb-8 gap-4">
           <div>
-            <h1 className="text-4xl font-semibold tracking-tight">OmniClon 2</h1>
-            <p className="text-sm text-white/50 mt-1">Voice Clone Studio — Professional Edition</p>
+            <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">OmniClon 2</h1>
+            <p className="text-sm text-white/50 mt-1">Voice Clone Studio</p>
           </div>
-          <div className="text-right text-xs text-white/40">Rewrite • Phase 0</div>
+          <span className="nle-badge text-white/35 normal-case tracking-normal shrink-0">Phase 0</span>
         </div>
 
-        {/* Stage + Progress */}
-        <div className="mb-6">
+        <div className="nle-panel p-4 mb-6">
           <div className="flex items-center gap-3 mb-2">
-            <div className={`w-3 h-3 rounded-full ${isReady ? 'bg-emerald-500' : 'bg-[#00b4d8] animate-pulse'}`} />
-            <div className="text-xl font-medium">{stageInfo.label}</div>
+            <span className={`nle-status-dot ${isReady ? 'bg-emerald-500' : 'bg-[#00b4d8] animate-pulse'}`} />
+            <div className="text-lg sm:text-xl font-semibold">{stageInfo.label}</div>
           </div>
-          <div className="text-white/70 text-sm pl-6">{stageInfo.description}</div>
-          {backendStatus?.message && <div className="pl-6 mt-1 text-xs text-white/50">{backendStatus.message}</div>}
+          <div className="text-white/65 text-sm pl-5">{stageInfo.description}</div>
+          {backendStatus?.message && <div className="pl-5 mt-1 text-xs text-white/45">{backendStatus.message}</div>}
 
-          <div className="pl-6 mt-3">
-            <div className="h-1 bg-white/10 rounded overflow-hidden">
+          <div className="pl-5 mt-3">
+            <div className="h-1 bg-white/[0.08] rounded-full overflow-hidden">
               <div
                 className={`h-full transition-all duration-300 ${
                   isReady ? 'bg-emerald-500 w-full' : 'bg-[#00b4d8] w-2/3 animate-pulse'
@@ -198,9 +196,9 @@ export default function BootstrapSplash({ backendStatus }: Props) {
 
         {/* Hints */}
         {currentStage === 'failed' && hints.length > 0 && (
-          <div className="mb-6 rounded-xl border border-red-500/30 bg-red-950/30 p-4 text-sm">
-            <div className="font-medium text-red-400 mb-2">Detected issues</div>
-            <ul className="list-disc pl-5 space-y-1 text-red-300/90">
+          <div className="mb-6 nle-panel border-red-500/30 bg-red-950/25 p-4 text-sm">
+            <div className="font-semibold text-red-400 mb-2 text-[10px] uppercase tracking-wider">Problemas detectados</div>
+            <ul className="list-disc pl-5 space-y-1 text-red-300/90 text-xs">
               {hints.map((h, i) => (
                 <li key={i}>{h}</li>
               ))}
@@ -209,27 +207,23 @@ export default function BootstrapSplash({ backendStatus }: Props) {
         )}
 
         {copyNotice && (
-          <div className="mb-4 text-center text-xs text-emerald-300 bg-emerald-950/30 border border-emerald-500/30 rounded py-2">
+          <div className="mb-4 text-center text-xs text-emerald-300 bg-emerald-950/30 border border-emerald-500/30 rounded-md py-2">
             {copyNotice}
           </div>
         )}
 
-        {/* Live Logs — collapsible */}
-        <div className="bg-[#111] border border-white/10 rounded-2xl overflow-hidden">
+        <div className="nle-panel overflow-hidden">
           <button
             onClick={() => setLogsOpen((v) => !v)}
-            className="w-full px-4 py-2 text-xs uppercase tracking-widest text-white/40 border-b border-white/10 flex justify-between items-center hover:bg-white/5 transition"
+            className="nle-panel-header w-full normal-case tracking-normal hover:bg-white/[0.03] transition"
             aria-expanded={logsOpen}
           >
-            <span>Diagnostic Logs</span>
-            <span className="flex items-center gap-2 text-white/30">
-              Last 100 lines
-              <span className="text-[10px]">{logsOpen ? '▲' : '▼'}</span>
-            </span>
+            <span>Logs de diagnóstico</span>
+            <span className="text-white/35 font-normal">Últimas 100 líneas {logsOpen ? '▴' : '▾'}</span>
           </button>
 
           {logsOpen && (
-            <div className="h-[260px] overflow-auto p-3 font-mono text-[12px] leading-tight bg-black/40">
+            <div className="h-[220px] sm:h-[260px] overflow-auto p-3 font-mono text-[11px] leading-tight bg-black/35">
               {logs.length === 0 ? (
                 <div className="text-white/30">Waiting for output...</div>
               ) : (
@@ -243,48 +237,26 @@ export default function BootstrapSplash({ backendStatus }: Props) {
           )}
         </div>
 
-        {/* Actions */}
-        <div className="flex flex-wrap gap-3 mt-6">
-          <button
-            onClick={handleRetry}
-            disabled={isRetrying}
-            className="flex-1 min-w-[120px] rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
-          >
-            {isRetrying ? 'Restarting...' : 'Retry'}
+        <div className="flex flex-wrap gap-2 mt-5">
+          <button onClick={handleRetry} disabled={isRetrying} className="nle-btn flex-1 min-w-[110px] py-2.5 text-xs disabled:opacity-50">
+            {isRetrying ? 'Reiniciando…' : 'Reintentar'}
           </button>
-
-          <button
-            onClick={handleForceRestart}
-            disabled={isRetrying}
-            className="flex-1 min-w-[120px] rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 py-3 text-sm font-medium transition disabled:opacity-50"
-          >
-            Force Restart
+          <button onClick={handleForceRestart} disabled={isRetrying} className="nle-btn flex-1 min-w-[110px] py-2.5 text-xs disabled:opacity-50">
+            Reinicio forzado
           </button>
-
-          <button
-            onClick={handleCopyError}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
-          >
-            Copy Error
+          <button onClick={handleCopyError} className="nle-btn py-2.5 text-xs">
+            Copiar error
           </button>
-
-          <button
-            onClick={handleCopyFullLog}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
-          >
-            Copy Full Log
+          <button onClick={handleCopyFullLog} className="nle-btn py-2.5 text-xs">
+            Copiar log
           </button>
-
-          <button
-            onClick={handleOpenLogs}
-            className="rounded-xl bg-white/10 hover:bg-white/15 active:bg-white/20 px-6 py-3 text-sm font-medium transition"
-          >
-            Open Logs
+          <button onClick={handleOpenLogs} className="nle-btn py-2.5 text-xs">
+            Abrir logs
           </button>
         </div>
 
-        <div className="mt-6 text-center text-[10px] text-white/30">
-          All startup activity is being recorded in the dedicated diagnostic logs for fast troubleshooting.
+        <div className="mt-5 text-center text-[10px] text-white/30">
+          Toda la actividad de arranque se registra en los logs de diagnóstico.
         </div>
       </div>
     </div>

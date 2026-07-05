@@ -6,8 +6,11 @@ import { useEditorStore } from '../../stores/editorStore';
 import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
 import { logError, logInfo } from '../../lib/log';
 import { VoiceReference, GenerationOptions, GenerateOptionsResponse, SubtitleTrack, WaveformData } from '../../types';
+import { Mic, Volume2, Subtitles, Play, Download, Save, Sparkles } from 'lucide-react';
 import CollapsibleSection from '../ui/CollapsibleSection';
 import TextImportModal from '../ui/TextImportModal';
+import TrackSelector from '../ui/TrackSelector';
+import NleSlider from '../ui/NleSlider';
 
 interface GenerateResult {
   success: boolean;
@@ -17,8 +20,6 @@ interface GenerateResult {
   duration_seconds?: number;
   error_message?: string;
 }
-
-const OPTIONS_STORAGE_KEY = 'omniclon2-generation-options';
 
 const NON_VERBAL_TAGS = [
   '[laughter]',
@@ -35,37 +36,6 @@ const NON_VERBAL_TAGS = [
   '[surprise-yo]',
   '[dissatisfaction-hnn]',
 ];
-
-const DEFAULT_OPTIONS: GenerationOptions = {
-  speed: 1.0,
-  num_step: 24,
-  guidance_scale: 2.0,
-  denoise: true,
-  postprocess_output: true,
-  language: 'auto',
-  instruct: '',
-  duration: '',
-  t_shift: '',
-};
-
-function loadStoredOptions(): GenerationOptions {
-  try {
-    const raw = localStorage.getItem(OPTIONS_STORAGE_KEY);
-    if (!raw) return DEFAULT_OPTIONS;
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_OPTIONS, ...parsed };
-  } catch {
-    return DEFAULT_OPTIONS;
-  }
-}
-
-function storeOptions(options: GenerationOptions) {
-  try {
-    localStorage.setItem(OPTIONS_STORAGE_KEY, JSON.stringify(options));
-  } catch {
-    // ignore
-  }
-}
 
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -102,9 +72,10 @@ export default function VoicePanel() {
   const setSelectedAudioTrack = useEditorStore((s) => s.setSelectedAudioTrack);
   const setWaveform = useEditorStore((s) => s.setWaveform);
   const activeAudioLanguage = audioTracks.find((t) => t.index === selectedAudioTrack)?.language;
+  const options = useEditorStore((s) => s.generationOptions);
+  const updateOption = useEditorStore((s) => s.updateGenerationOption);
   const [error, setError] = useState<string | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
-  const [options, setOptions] = useState<GenerationOptions>(loadStoredOptions);
   const [optionMeta, setOptionMeta] = useState<GenerateOptionsResponse['options'] | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -155,12 +126,6 @@ export default function VoicePanel() {
       .then((res) => setOptionMeta(res.options))
       .catch((err) => logError('VoicePanel', 'get_generate_options failed', err));
   }, []);
-
-  const updateOption = <K extends keyof GenerationOptions>(key: K, value: GenerationOptions[K]) => {
-    const next = { ...options, [key]: value };
-    setOptions(next);
-    storeOptions(next);
-  };
 
   const stopCurrentAudio = useCallback(() => {
     if (audioRef.current) {
@@ -551,29 +516,42 @@ export default function VoicePanel() {
   const meta = (key: keyof GenerationOptions) => optionMeta?.[key];
 
   return (
-    <div className="flex flex-col h-full text-sm">
-      <div className="font-medium mb-2 flex items-center justify-between">
-        Voice & Cloning
-        <span className={`text-[10px] px-1.5 py-0.5 rounded border ${k2Badge.color}`}>{k2Badge.text}</span>
+    <div className="flex flex-col h-full min-h-0 text-sm">
+      <div className="nle-panel-header mb-3 rounded-t-md shrink-0">
+        <span className="flex items-center gap-1.5">
+          <Mic size={12} className="text-[#3ecf8e]" />
+          Inspector de voz
+        </span>
+        <span className={`text-[9px] px-1.5 py-0.5 rounded border normal-case tracking-normal font-medium ${k2Badge.color}`}>
+          {k2Badge.text}
+        </span>
       </div>
 
       <div className="flex-1 flex flex-col text-xs min-h-0 overflow-auto gap-3">
         {/* TTS / Cloning Model selector (currently OmniVoice is the quality default) */}
-        <div className="p-2 bg-[#1a1a1a] border border-white/10 rounded">
-          <div className="text-[10px] text-white/50 mb-1">Cloning Model</div>
-          <div className="flex items-center justify-between">
-            <span className="text-emerald-300 font-medium">k2-fsa / OmniVoice</span>
-            <span className="text-[9px] text-white/40">máxima calidad</span>
+        <div className="nle-panel p-2.5">
+          <div className="flex items-center gap-1.5 text-[9px] text-white/40 uppercase tracking-wider mb-1.5">
+            <Sparkles size={10} />
+            Modelo de clonación
           </div>
-          <div className="text-[9px] text-white/40 mt-1">
-            Modelo principal de clonación zero-shot. Se usa automáticamente para todas las generaciones.
+          <div className="flex items-center justify-between">
+            <span className="text-emerald-300 font-medium text-xs">k2-fsa / OmniVoice</span>
+            <span className="text-[9px] text-white/35 px-1.5 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+              máx. calidad
+            </span>
           </div>
         </div>
 
         {/* Voice Reference (A/B) */}
         <CollapsibleSection
-          title={<>Voice Reference (A/B) <span className="text-[9px] text-white/40 font-normal">(4-10s recommended)</span></>}
+          title={<>Referencia A/B <span className="text-[8px] text-white/35 font-normal normal-case tracking-normal">(4–10s)</span></>}
           defaultOpen
+          accent="audio"
+          summary={
+            region.end > region.start
+              ? `${(region.end - region.start).toFixed(1)}s`
+              : 'sin marcar'
+          }
         >
           {currentVoiceReference ? (
             <div>
@@ -585,20 +563,21 @@ export default function VoicePanel() {
                   From: {currentVoiceReference.sourceClipName}
                 </div>
               )}
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex gap-1.5 mt-1.5">
                 <button
                   onClick={playReference}
-                  className="text-[10px] px-2 py-0.5 bg-white/10 rounded hover:bg-white/20 transition"
+                  className="nle-btn"
                   aria-label="Play reference audio"
                 >
-                  ▶ Play ref
+                  <Play size={10} />
+                  Escuchar
                 </button>
                 <button
                   onClick={() => setCurrentVoiceReference(null)}
-                  className="text-[10px] text-red-400 hover:text-red-300 px-2 py-0.5 transition"
+                  className="nle-btn text-red-400 hover:text-red-300"
                   aria-label="Clear reference"
                 >
-                  Clear
+                  Limpiar
                 </button>
               </div>
             </div>
@@ -630,82 +609,83 @@ export default function VoicePanel() {
         </CollapsibleSection>
 
         {/* Reference transcript */}
-        <CollapsibleSection title={<>Reference transcript <span className="text-[9px] text-white/40 font-normal">(optional)</span></>} defaultOpen={false}>
+        <CollapsibleSection
+          title={<>Transcripción de referencia <span className="text-[8px] text-white/35 font-normal normal-case tracking-normal">(opcional)</span></>}
+          defaultOpen={false}
+          accent="audio"
+          summary={
+            refText.trim()
+              ? refText.trim().length > 28
+                ? `${refText.trim().slice(0, 28)}…`
+                : refText.trim()
+              : 'vacía'
+          }
+        >
           <textarea
             value={refText}
             onChange={(e) => setRefText(e.target.value)}
             placeholder="Escribe aquí lo que dice exactamente el segmento A-B seleccionado..."
-            className="w-full min-h-[50px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-1 resize-y focus:outline-none focus:border-[#00b4d8]/50"
+            className="nle-input min-h-[50px] mb-2 resize-y"
           />
-          <div className="flex flex-col gap-1.5 mt-1.5">
-            {audioTracks.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] text-white/40">Audio:</span>
-                <select
-                  value={selectedAudioTrack ?? ''}
-                  onChange={(e) => handleAudioTrackChange(e.target.value ? Number(e.target.value) : null)}
-                  className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded px-1.5 py-0.5 text-white text-[10px] focus:outline-none focus:border-[#00b4d8]/50"
-                >
-                  {audioTracks.map((t) => (
-                    <option key={t.index} value={t.index} className="bg-[#1a1a1a]">
-                      [{t.language}] {t.title || t.codec_name} {t.channels > 0 && `• ${t.channels}ch`}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {subtitleTracks.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[9px] text-white/40">Subtitles:</span>
-                <select
-                  value={selectedSubtitleTrack ?? ''}
-                  onChange={(e) => setSelectedSubtitleTrack(e.target.value ? Number(e.target.value) : null)}
-                  className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded px-1.5 py-0.5 text-white text-[10px] focus:outline-none focus:border-[#00b4d8]/50"
-                >
-                  {subtitleTracks.map((t) => (
-                    <option key={t.index} value={t.index} className="bg-[#1a1a1a]">
-                      [{t.language}] {t.title || t.codec_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <div className="text-[9px] text-white/40">
-                Si lo dejas vacío, el backend intentará transcribirlo automáticamente (requiere ASR).
-              </div>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={handleExtractSubtitles}
-                  disabled={!activeClipId || subtitleTracks.length === 0}
-                  className="text-[10px] px-2 py-0.5 bg-[#00b4d8]/20 text-[#00b4d8] rounded hover:bg-[#00b4d8]/30 disabled:opacity-50 transition"
-                  title="Fill transcript from embedded subtitles"
-                >
-                  Extract from subtitles
-                </button>
-                <button
-                  onClick={handleTranscribe}
-                  disabled={!activeClipId || isTranscribing}
-                  className="text-[10px] px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded hover:bg-purple-500/30 disabled:opacity-50 transition"
-                  title="Transcribe the A-B segment with OpenAI Whisper (requires model download on first use)"
-                >
-                  {isTranscribing ? 'Transcribing…' : 'Transcribe (Whisper)'}
-                </button>
-              </div>
+          <div className="flex flex-col gap-2 mt-1.5">
+            <TrackSelector
+              icon={<Volume2 size={12} />}
+              label="Pista audio"
+              accent="audio"
+              value={selectedAudioTrack}
+              options={audioTracks.map((t) => ({
+                value: t.index,
+                label: `[${t.language}] ${t.title || t.codec_name}`,
+                meta: t.channels > 0 ? `${t.channels}ch` : undefined,
+              }))}
+              onChange={handleAudioTrackChange}
+            />
+            <TrackSelector
+              icon={<Subtitles size={12} />}
+              label="Subtítulos"
+              accent="subtitle"
+              value={selectedSubtitleTrack}
+              options={subtitleTracks.map((t) => ({
+                value: t.index,
+                label: `[${t.language}] ${t.title || t.codec_name}`,
+              }))}
+              onChange={setSelectedSubtitleTrack}
+            />
+            <div className="text-[9px] text-white/35 leading-relaxed">
+              Si lo dejas vacío, el backend intentará transcribirlo automáticamente (requiere ASR).
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={handleExtractSubtitles}
+                disabled={!activeClipId || subtitleTracks.length === 0}
+                className="nle-btn text-[#c9a0ff] border-[#c9a0ff]/25 bg-[#c9a0ff]/10"
+                title="Fill transcript from embedded subtitles"
+              >
+                <Subtitles size={10} />
+                Desde subtítulos
+              </button>
+              <button
+                onClick={handleTranscribe}
+                disabled={!activeClipId || isTranscribing}
+                className="nle-btn text-purple-300 border-purple-500/25 bg-purple-500/10"
+                title="Transcribe the A-B segment with OpenAI Whisper"
+              >
+                {isTranscribing ? 'Transcribiendo…' : 'Whisper ASR'}
+              </button>
             </div>
           </div>
         </CollapsibleSection>
 
         {/* Text to Synthesize */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-white/60">Text to Synthesize</span>
+        <div className="flex flex-col nle-panel p-2.5 shrink-0">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[9px] text-white/50 uppercase tracking-wider font-semibold">Texto a sintetizar</span>
             <button
               onClick={() => setIsImportModalOpen(true)}
-              className="text-[10px] px-2 py-0.5 bg-white/10 text-white/60 rounded hover:bg-white/15 hover:text-white transition"
+              className="nle-btn"
               title="Import text from CSV or Excel"
             >
-              Import CSV/Excel…
+              CSV/Excel
             </button>
           </div>
           <textarea
@@ -713,7 +693,7 @@ export default function VoicePanel() {
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="Escribe aquí el texto que quieres que diga la voz clonada..."
-            className="flex-1 min-h-[80px] bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs mb-2 resize-y focus:outline-none focus:border-[#00b4d8]/50"
+            className="nle-input min-h-[80px] mb-2 resize-y"
           />
 
           <div className="mb-2">
@@ -734,55 +714,41 @@ export default function VoicePanel() {
         </div>
 
         {/* Voice Tuning */}
-        <CollapsibleSection title="Voice Tuning" defaultOpen={false}>
-          <div className="space-y-2">
-            <label className="block">
-              <span className="text-[10px] text-white/50 flex justify-between">
-                <span>{meta('speed')?.label || 'Speed'}</span>
-                <span>{options.speed.toFixed(2)}x</span>
-              </span>
-              <input
-                type="range"
-                min={meta('speed')?.min ?? 0.5}
-                max={meta('speed')?.max ?? 2.0}
-                step={meta('speed')?.step ?? 0.05}
-                value={options.speed}
-                onChange={(e) => updateOption('speed', Number(e.target.value))}
-                className="w-full accent-[#00b4d8]"
-              />
-            </label>
+        <CollapsibleSection
+          title="Ajuste de voz"
+          defaultOpen={false}
+          accent="audio"
+          summary={`${options.speed.toFixed(1)}× · ${options.language === 'auto' ? 'auto' : options.language.toUpperCase()}`}
+        >
+          <div className="space-y-3.5">
+            <NleSlider
+              label={meta('speed')?.label || 'Velocidad'}
+              value={options.speed}
+              min={meta('speed')?.min ?? 0.5}
+              max={meta('speed')?.max ?? 2.0}
+              step={meta('speed')?.step ?? 0.05}
+              displayValue={`${options.speed.toFixed(2)}×`}
+              onChange={(v) => updateOption('speed', v)}
+            />
 
-            <label className="block">
-              <span className="text-[10px] text-white/50 flex justify-between">
-                <span>{meta('num_step')?.label || 'Steps'}</span>
-                <span>{options.num_step}</span>
-              </span>
-              <input
-                type="range"
-                min={meta('num_step')?.min ?? 4}
-                max={meta('num_step')?.max ?? 64}
-                step={meta('num_step')?.step ?? 1}
-                value={options.num_step}
-                onChange={(e) => updateOption('num_step', Number(e.target.value))}
-                className="w-full accent-[#00b4d8]"
-              />
-            </label>
+            <NleSlider
+              label={meta('num_step')?.label || 'Pasos'}
+              value={options.num_step}
+              min={meta('num_step')?.min ?? 4}
+              max={meta('num_step')?.max ?? 64}
+              step={meta('num_step')?.step ?? 1}
+              onChange={(v) => updateOption('num_step', v)}
+            />
 
-            <label className="block">
-              <span className="text-[10px] text-white/50 flex justify-between">
-                <span>{meta('guidance_scale')?.label || 'Guidance'}</span>
-                <span>{options.guidance_scale.toFixed(1)}</span>
-              </span>
-              <input
-                type="range"
-                min={meta('guidance_scale')?.min ?? 1.0}
-                max={meta('guidance_scale')?.max ?? 5.0}
-                step={meta('guidance_scale')?.step ?? 0.1}
-                value={options.guidance_scale}
-                onChange={(e) => updateOption('guidance_scale', Number(e.target.value))}
-                className="w-full accent-[#00b4d8]"
-              />
-            </label>
+            <NleSlider
+              label={meta('guidance_scale')?.label || 'Guidance'}
+              value={options.guidance_scale}
+              min={meta('guidance_scale')?.min ?? 1.0}
+              max={meta('guidance_scale')?.max ?? 5.0}
+              step={meta('guidance_scale')?.step ?? 0.1}
+              displayValue={options.guidance_scale.toFixed(1)}
+              onChange={(v) => updateOption('guidance_scale', v)}
+            />
 
             <div className="flex gap-3">
               <label className="flex items-center gap-1.5 text-[10px] text-white/70 cursor-pointer">
@@ -806,11 +772,11 @@ export default function VoicePanel() {
             </div>
 
             <label className="block">
-              <span className="text-[10px] text-white/50">{meta('language')?.label || 'Language'}</span>
+              <span className="text-[10px] text-white/50">{meta('language')?.label || 'Idioma'}</span>
               <select
                 value={options.language}
                 onChange={(e) => updateOption('language', e.target.value)}
-                className="w-full mt-0.5 bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-[#00b4d8]/50"
+                className="nle-select mt-1"
               >
                 {(meta('language')?.choices || ['auto', 'es', 'en']).map((c) => (
                   <option key={c} value={c} className="bg-[#1a1a1a]">
@@ -822,14 +788,15 @@ export default function VoicePanel() {
           </div>
 
           <button
+            type="button"
             onClick={() => setShowAdvanced((v) => !v)}
-            className="mt-2 text-[10px] text-white/50 hover:text-white/80 underline"
+            className="mt-1 nle-btn w-full text-[10px]"
           >
-            {showAdvanced ? 'Hide advanced' : 'Advanced options'}
+            {showAdvanced ? 'Ocultar opciones avanzadas' : 'Opciones avanzadas'}
           </button>
 
           {showAdvanced && (
-            <div className="mt-2 space-y-2 pt-2 border-t border-white/10">
+            <div className="mt-2 space-y-2.5 pt-2.5 border-t border-white/[0.08]">
               <label className="block">
                 <span className="text-[10px] text-white/50">{meta('instruct')?.label || 'Voice design instruction'}</span>
                 <input
@@ -837,7 +804,7 @@ export default function VoicePanel() {
                   value={options.instruct}
                   onChange={(e) => updateOption('instruct', e.target.value)}
                   placeholder="e.g. speak softly and slowly"
-                  className="w-full mt-0.5 bg-black/40 border border-white/20 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-[#00b4d8]/50"
+                  className="nle-input mt-1"
                 />
               </label>
 
@@ -852,7 +819,7 @@ export default function VoicePanel() {
                     value={options.duration}
                     onChange={(e) => updateOption('duration', e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="auto"
-                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-[#00b4d8]/50"
+                    className="nle-input mt-1"
                   />
                 </label>
                 <label className="block flex-1">
@@ -865,7 +832,7 @@ export default function VoicePanel() {
                     value={options.t_shift}
                     onChange={(e) => updateOption('t_shift', e.target.value === '' ? '' : Number(e.target.value))}
                     placeholder="auto"
-                    className="w-full mt-0.5 bg-black/40 border border-white/10 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-[#00b4d8]/50"
+                    className="nle-input mt-1"
                   />
                 </label>
               </div>
@@ -877,19 +844,20 @@ export default function VoicePanel() {
         <button
           onClick={handleExportAB}
           disabled={!activeClipId}
-          className="w-full px-3 py-1 bg-white/10 text-white/70 text-[10px] rounded hover:bg-white/15 disabled:opacity-50 transition"
+          className="nle-btn w-full disabled:opacity-50"
           title="Export the A-B segment as a separate WAV file (advanced)"
         >
-          Export A-B reference manually
+          Exportar referencia A-B
         </button>
 
         {/* Generate */}
         <button
           onClick={handleGenerate}
           disabled={isGenerating || !activeClipId || region.end - region.start < 0.5}
-          className="w-full px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-medium rounded transition"
+          className="w-full px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 disabled:opacity-50 text-white text-sm font-semibold rounded-md transition shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2"
         >
-          {isGenerating ? 'Generating…' : 'Generate Cloned Voice'}
+          <Sparkles size={16} />
+          {isGenerating ? 'Generando…' : 'Generar voz clonada'}
         </button>
 
         {error && (
@@ -903,39 +871,52 @@ export default function VoicePanel() {
         </div>
 
         {(lastGeneratedAudio || lastGeneratedPath) && (
-          <div className="p-2 bg-emerald-950/30 border border-emerald-600/50 rounded text-[10px]">
-            <div className="truncate">Last generated: {lastGeneratedInfo}</div>
+          <div className="nle-panel p-2.5 border-emerald-500/25 bg-emerald-950/20 text-[10px]">
+            <div className="truncate text-emerald-300/90 font-medium">Última generación: {lastGeneratedInfo}</div>
             {lastGeneratedPath && (
-              <div className="text-white/40 truncate mt-0.5" title={lastGeneratedPath}>
+              <div className="text-white/35 truncate mt-0.5 font-mono text-[9px]" title={lastGeneratedPath}>
                 {lastGeneratedPath}
               </div>
             )}
-            <div className="flex gap-1 mt-1">
+            <div className="flex gap-1.5 mt-2">
               <button
                 onClick={playGenerated}
-                className="px-2 py-0.5 bg-emerald-600 text-white text-[10px] rounded hover:bg-emerald-700 transition"
+                className="nle-btn nle-btn--primary"
                 aria-label="Play generated voice"
               >
-                ▶ Play
+                <Play size={10} />
+                Play
               </button>
               <button
                 onClick={downloadGenerated}
-                className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition"
+                className="nle-btn"
                 aria-label="Download generated voice"
               >
-                ⬇ Download
+                <Download size={10} />
+                Download
               </button>
               <button
                 onClick={exportGenerated}
                 disabled={exporting}
-                className="px-2 py-0.5 bg-white/10 text-white text-[10px] rounded hover:bg-white/20 transition disabled:opacity-50"
+                className="nle-btn disabled:opacity-50"
                 aria-label="Export generated voice"
               >
-                {exporting ? 'Saving…' : 'Save as…'}
+                <Save size={10} />
+                {exporting ? 'Guardando…' : 'Guardar'}
               </button>
             </div>
           </div>
         )}
+      </div>
+
+      <div className="shrink-0 mt-2 pt-2 border-t border-white/[0.06] nle-workflow-steps">
+        <span><span className="step-num">1</span> Marca A/B</span>
+        <span className="text-white/15">→</span>
+        <span><span className="step-num">2</span> Transcripción (opc.)</span>
+        <span className="text-white/15">→</span>
+        <span><span className="step-num">3</span> Texto objetivo</span>
+        <span className="text-white/15">→</span>
+        <span><span className="step-num">4</span> Generar</span>
       </div>
 
       <TextImportModal
@@ -943,10 +924,6 @@ export default function VoicePanel() {
         onClose={() => setIsImportModalOpen(false)}
         onSelect={(text) => setText(text)}
       />
-
-      <div className="text-[10px] text-white/30 mt-2 pt-2 border-t border-white/10">
-        1. Select A/B on video · 2. (Optional) write what the A-B segment says · 3. Type target text · 4. Generate
-      </div>
     </div>
   );
 }

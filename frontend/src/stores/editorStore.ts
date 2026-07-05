@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { Region, MediaClip, WaveformData, VoiceReference, SubtitleTrack, AudioTrack } from '../types';
+import { Region, MediaClip, WaveformData, VoiceReference, SubtitleTrack, AudioTrack, GenerationOptions } from '../types';
+import { loadStoredOptions, storeOptions } from '../lib/voiceOptions';
 
 interface EditorState {
   // Current project
@@ -27,6 +28,7 @@ interface EditorState {
   // Voice synthesis text shared between panels
   voiceText: string;
   voiceRefText: string;
+  generationOptions: GenerationOptions;
 
   // Subtitle tracks for the active clip (populated by ffprobe)
   subtitleTracks: SubtitleTrack[];
@@ -58,6 +60,8 @@ interface EditorState {
   setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => void;
   setVoiceText: (text: string) => void;
   setVoiceRefText: (text: string) => void;
+  setGenerationOptions: (options: GenerationOptions) => void;
+  updateGenerationOption: <K extends keyof GenerationOptions>(key: K, value: GenerationOptions[K]) => void;
   setSubtitleTracks: (tracks: SubtitleTrack[]) => void;
   setSelectedSubtitleTrack: (index: number | null) => void;
   setAudioTracks: (tracks: AudioTrack[]) => void;
@@ -88,13 +92,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lastGeneratedInfo: null,
   voiceText: '',
   voiceRefText: '',
+  generationOptions: loadStoredOptions(),
   subtitleTracks: [],
   selectedSubtitleTrack: null,
   audioTracks: [],
   selectedAudioTrack: null,
   fineTuneTarget: null,
 
-  setActiveClip: (id) => set({ activeClipId: id }),
+  setActiveClip: (id) => {
+    if (!id) {
+      set({ activeClipId: null });
+      return;
+    }
+    const clip = get().clips.find((c) => c.id === id);
+    if (clip) {
+      set({ activeClipId: id, duration: clip.duration });
+    } else {
+      set({ activeClipId: id });
+    }
+  },
   
   addClip: (clip) => set((state) => ({
     clips: [...state.clips, clip],
@@ -139,6 +155,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setLastGenerated: (audioBase64: string | null, outputPath: string | null, info: string | null) => set({ lastGeneratedAudio: audioBase64, lastGeneratedPath: outputPath, lastGeneratedInfo: info }),
   setVoiceText: (text: string) => set({ voiceText: text }),
   setVoiceRefText: (text: string) => set({ voiceRefText: text }),
+  setGenerationOptions: (options) => {
+    storeOptions(options);
+    set({ generationOptions: options });
+  },
+  updateGenerationOption: (key, value) => {
+    const next = { ...get().generationOptions, [key]: value };
+    storeOptions(next);
+    set({ generationOptions: next });
+  },
   setSubtitleTracks: (tracks: SubtitleTrack[]) => set({ subtitleTracks: tracks }),
   setSelectedSubtitleTrack: (index: number | null) => set({ selectedSubtitleTrack: index }),
   setAudioTracks: (tracks: AudioTrack[]) => set({ audioTracks: tracks }),

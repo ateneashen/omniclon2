@@ -1,4 +1,5 @@
 import { Component, ReactNode } from 'react';
+import { AlertTriangle, Copy, RotateCcw } from 'lucide-react';
 import { logError } from './lib/log';
 
 interface Props {
@@ -49,29 +50,28 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="h-screen w-screen bg-[#111] text-red-400 font-mono flex flex-col items-center justify-center p-6 text-center">
-          <h1 className="text-white text-xl mb-2">OmniClon 2 encountered an error</h1>
-          <p className="text-white/60 text-sm mb-4 max-w-md">
-            The UI crashed unexpectedly. The error has been logged to the dedicated diagnostic logs.
-            You can copy the details below for support.
+        <div className="h-screen w-screen bg-[var(--nle-bg-app)] text-white flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-14 h-14 rounded-lg bg-red-500/10 border border-red-500/25 flex items-center justify-center mb-4">
+            <AlertTriangle size={28} className="text-red-400" />
+          </div>
+          <h1 className="text-xl font-semibold mb-2">OmniClon 2 encontró un error</h1>
+          <p className="text-white/55 text-sm mb-4 max-w-md leading-relaxed">
+            La interfaz falló inesperadamente. El error se registró en los logs de diagnóstico.
+            Puedes copiar los detalles para soporte.
           </p>
-          <pre className="text-left text-xs bg-black/50 p-4 rounded max-w-2xl max-h-[50vh] overflow-auto whitespace-pre-wrap border border-red-500/20">
+          <pre className="text-left text-xs bg-black/50 p-4 rounded-md max-w-2xl max-h-[50vh] overflow-auto whitespace-pre-wrap border border-red-500/20 text-red-200/90 font-mono w-full">
             {this.state.error?.message}
             {'\n\n'}
             {this.state.error?.stack}
           </pre>
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={this.handleReset}
-              className="px-4 py-2 bg-white/10 hover:bg-white/15 rounded text-white text-sm transition"
-            >
-              Try again
+          <div className="flex gap-2 mt-4">
+            <button type="button" onClick={this.handleReset} className="nle-btn">
+              <RotateCcw size={14} />
+              Reintentar
             </button>
-            <button
-              onClick={this.handleCopyError}
-              className="px-4 py-2 bg-red-600/80 hover:bg-red-500/80 rounded text-white text-sm transition"
-            >
-              {this.state.copied ? 'Copied!' : 'Copy error details'}
+            <button type="button" onClick={this.handleCopyError} className="nle-btn text-red-300 border-red-500/30 bg-red-500/10">
+              <Copy size={14} />
+              {this.state.copied ? 'Copiado' : 'Copiar error'}
             </button>
           </div>
         </div>

@@ -1,14 +1,28 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import {
+  Eraser,
+  Timer,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+} from 'lucide-react';
 import { useEditorStore } from '../../stores/editorStore';
 import { logError } from '../../lib/log';
 import { MediaClip, WaveformData } from '../../types';
+import NleIconButton from '../ui/NleIconButton';
 
 const PADDING = 48;
 const WAVE_HEIGHT = 68;
+const VIDEO_TRACK_HEIGHT = 28;
+const TRACK_GAP = 4;
 const RULER_HEIGHT = 26;
-const HANDLE_WIDTH = 10;
-const HANDLE_HIT_RADIUS = 20;
+const TRACK_HEADER_WIDTH = 72;
+const BRACKET_ARM = 11;
+const BRACKET_HIT_RADIUS = 22;
+const PLAYHEAD_RADIUS = 10;
+const PLAYHEAD_HIT_RADIUS = 16;
+const RULER_HIT_EXTRA = 6;
 // Browser canvas width limits (Chrome ~32k). Keep well below that so very
 // long videos (e.g. 1800s) still render instead of producing a blank timeline.
 const MAX_CANVAS_WIDTH = 12000;
@@ -29,6 +43,29 @@ function niceStep(raw: number): number {
   }
   return steps[steps.length - 1];
 }
+
+function BracketInIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+      <path d="M10 5v14" />
+      <path d="M10 5h5" />
+      <path d="M10 19h5" />
+    </svg>
+  );
+}
+
+function BracketOutIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden>
+      <path d="M14 5v14" />
+      <path d="M9 5h5" />
+      <path d="M9 19h5" />
+    </svg>
+  );
+}
+
+type DragTarget = 'playhead' | 'a' | 'b';
+type HitTarget = DragTarget | null;
 
 function formatTime(seconds: number, step: number, duration: number): string {
   const sign = seconds < 0 ? '-' : '';
@@ -70,8 +107,8 @@ export default function Timeline() {
 
   const activeClip = clips.find((c: MediaClip) => c.id === activeClipId);
 
-  const [isDragging, setIsDragging] = useState<'playhead' | 'a' | 'b' | null>(null);
-  const [hoverHandle, setHoverHandle] = useState<'a' | 'b' | null>(null);
+  const [isDragging, setIsDragging] = useState<DragTarget | null>(null);
+  const [hoverTarget, setHoverTarget] = useState<HitTarget>(null);
 
   const pixelsPerSecond = 80 * zoom;
   // Clamp the effective resolution so the canvas never exceeds the browser limit.
@@ -125,7 +162,7 @@ export default function Timeline() {
 
     const dpr = window.devicePixelRatio || 1;
     const width = Math.max(totalWidth, 800);
-    const height = RULER_HEIGHT + WAVE_HEIGHT + 16;
+    const height = RULER_HEIGHT + VIDEO_TRACK_HEIGHT + TRACK_GAP + WAVE_HEIGHT + 16;
 
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -134,14 +171,17 @@ export default function Timeline() {
     ctx.scale(dpr, dpr);
 
     // Background
-    ctx.fillStyle = '#0f0f0f';
+    ctx.fillStyle = '#0d0d0d';
     ctx.fillRect(0, 0, width, height);
 
     // Ruler
-    ctx.fillStyle = '#1a1a1a';
+    const rulerGrad = ctx.createLinearGradient(0, 0, 0, RULER_HEIGHT);
+    rulerGrad.addColorStop(0, '#222');
+    rulerGrad.addColorStop(1, '#181818');
+    ctx.fillStyle = rulerGrad;
     ctx.fillRect(0, 0, width, RULER_HEIGHT);
 
-    ctx.strokeStyle = '#333';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, RULER_HEIGHT - 0.5);
@@ -149,8 +189,8 @@ export default function Timeline() {
     ctx.stroke();
 
     // Time markers — adaptive step so tick density stays readable at any zoom.
-    ctx.fillStyle = '#666';
-    ctx.font = '11px Inter, system-ui, sans-serif';
+    ctx.fillStyle = '#888';
+    ctx.font = '10px "SF Mono", Consolas, monospace';
 
     const targetPixelSpacing = 80;
     const step = niceStep(targetPixelSpacing / Math.max(0.0001, effectivePixelsPerSecond));
@@ -165,7 +205,7 @@ export default function Timeline() {
       const isMajor = Math.abs(t % majorStep) < step * 0.01;
       const isLast = Math.abs(t - duration) < step * 0.01;
 
-      ctx.strokeStyle = isMajor ? '#444' : '#2a2a2a';
+      ctx.strokeStyle = isMajor ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)';
       ctx.beginPath();
       ctx.moveTo(x, RULER_HEIGHT - (isMajor ? 10 : 5));
       ctx.lineTo(x, RULER_HEIGHT);
@@ -187,10 +227,34 @@ export default function Timeline() {
       }
     }
 
-    // Waveform area
-    const waveY = RULER_HEIGHT + 4;
-    ctx.fillStyle = '#111';
+    // Video track (V1) — visual clip bar like Premiere/FCP
+    const videoY = RULER_HEIGHT + 2;
+    if (duration > 0) {
+      const clipWidth = duration * effectivePixelsPerSecond;
+      const videoGrad = ctx.createLinearGradient(PADDING, videoY, PADDING, videoY + VIDEO_TRACK_HEIGHT);
+      videoGrad.addColorStop(0, 'rgba(91, 141, 239, 0.55)');
+      videoGrad.addColorStop(1, 'rgba(91, 141, 239, 0.25)');
+      ctx.fillStyle = videoGrad;
+      ctx.fillRect(PADDING, videoY, clipWidth, VIDEO_TRACK_HEIGHT);
+      ctx.strokeStyle = 'rgba(91, 141, 239, 0.7)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(PADDING + 0.5, videoY + 0.5, clipWidth - 1, VIDEO_TRACK_HEIGHT - 1);
+
+      if (activeClip) {
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        ctx.font = '10px Inter, system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        const label = activeClip.name.length > 28 ? `${activeClip.name.slice(0, 26)}…` : activeClip.name;
+        ctx.fillText(label, PADDING + 6, videoY + VIDEO_TRACK_HEIGHT / 2 + 4);
+      }
+    }
+
+    // Waveform area (A1)
+    const waveY = RULER_HEIGHT + VIDEO_TRACK_HEIGHT + TRACK_GAP + 4;
+    ctx.fillStyle = '#101010';
     ctx.fillRect(PADDING, waveY, duration * effectivePixelsPerSecond, WAVE_HEIGHT);
+    ctx.strokeStyle = 'rgba(62, 207, 142, 0.15)';
+    ctx.strokeRect(PADDING + 0.5, waveY + 0.5, duration * effectivePixelsPerSecond - 1, WAVE_HEIGHT - 1);
 
     // Draw waveform with symmetric min/max bars and a vertical gradient
     if (waveform && waveform.samples.length > 0 && duration > 0) {
@@ -200,9 +264,9 @@ export default function Timeline() {
 
       const centerY = waveY + WAVE_HEIGHT / 2;
       const gradient = ctx.createLinearGradient(0, waveY, 0, waveY + WAVE_HEIGHT);
-      gradient.addColorStop(0, '#00b4d8');
-      gradient.addColorStop(0.5, '#4ecdc4');
-      gradient.addColorStop(1, '#0077b6');
+      gradient.addColorStop(0, '#5eead4');
+      gradient.addColorStop(0.45, '#3ecf8e');
+      gradient.addColorStop(1, '#1a9f5e');
       ctx.fillStyle = gradient;
 
       for (let px = 0; px < totalPixels; px++) {
@@ -230,12 +294,12 @@ export default function Timeline() {
         const bX = timeToX(region.end);
 
         const regionGradient = ctx.createLinearGradient(0, waveY, 0, waveY + WAVE_HEIGHT);
-        regionGradient.addColorStop(0, 'rgba(0, 180, 216, 0.22)');
-        regionGradient.addColorStop(1, 'rgba(0, 180, 216, 0.06)');
+        regionGradient.addColorStop(0, 'rgba(245, 197, 66, 0.28)');
+        regionGradient.addColorStop(1, 'rgba(245, 197, 66, 0.08)');
         ctx.fillStyle = regionGradient;
         ctx.fillRect(aX, waveY, bX - aX, WAVE_HEIGHT);
 
-        ctx.strokeStyle = 'rgba(0, 180, 216, 0.5)';
+        ctx.strokeStyle = 'rgba(245, 197, 66, 0.55)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(aX, waveY);
@@ -244,51 +308,66 @@ export default function Timeline() {
         ctx.lineTo(bX, waveY + WAVE_HEIGHT);
         ctx.stroke();
 
-        const drawHandle = (
+        const drawBracketHandle = (
           x: number,
+          side: 'in' | 'out',
           label: string,
           color: string,
           hovered: boolean
         ) => {
-          const handleW = HANDLE_WIDTH + (hovered ? 2 : 0);
-          const topY = waveY - 4;
+          const arm = BRACKET_ARM + (hovered ? 2 : 0);
+          const lineW = hovered ? 3.5 : 2.5;
+          const top = waveY + 2;
+          const bottom = waveY + WAVE_HEIGHT - 2;
 
+          ctx.save();
           ctx.shadowColor = color;
-          ctx.shadowBlur = hovered ? 10 : 4;
-          ctx.fillStyle = color;
+          ctx.shadowBlur = hovered ? 12 : 5;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = lineW;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
 
-          // Vertical bar
-          ctx.fillRect(x - handleW / 2, waveY, handleW, WAVE_HEIGHT);
-
-          // Top flag
           ctx.beginPath();
-          ctx.moveTo(x - 8, topY);
-          ctx.lineTo(x + 8, topY);
-          ctx.lineTo(x + 8, topY + 14);
-          ctx.lineTo(x, topY + 18);
-          ctx.lineTo(x - 8, topY + 14);
-          ctx.closePath();
-          ctx.fill();
+          if (side === 'in') {
+            ctx.moveTo(x + arm, top);
+            ctx.lineTo(x, top);
+            ctx.lineTo(x, bottom);
+            ctx.lineTo(x + arm, bottom);
+          } else {
+            ctx.moveTo(x - arm, top);
+            ctx.lineTo(x, top);
+            ctx.lineTo(x, bottom);
+            ctx.lineTo(x - arm, bottom);
+          }
+          ctx.stroke();
+          ctx.restore();
 
-          ctx.shadowBlur = 0;
-
-          ctx.fillStyle = '#000';
-          ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+          const badgeY = waveY - 5;
+          const badgeW = 14;
+          const badgeH = 12;
+          const badgeX = side === 'in' ? x + arm + 2 : x - arm - badgeW - 2;
+          ctx.fillStyle = hovered ? color : 'rgba(0,0,0,0.55)';
+          ctx.fillRect(badgeX, badgeY - badgeH + 2, badgeW, badgeH);
+          ctx.fillStyle = hovered ? '#111' : color;
+          ctx.font = 'bold 9px Inter, system-ui, sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillText(label, x, topY + 11);
+          ctx.fillText(label, badgeX + badgeW / 2, badgeY);
         };
 
-        drawHandle(
+        drawBracketHandle(
           aX,
+          'in',
           'A',
-          hoverHandle === 'a' || isDragging === 'a' ? '#ff8585' : '#ff6b6b',
-          hoverHandle === 'a' || isDragging === 'a'
+          hoverTarget === 'a' || isDragging === 'a' ? '#ff8585' : '#ff6b6b',
+          hoverTarget === 'a' || isDragging === 'a'
         );
-        drawHandle(
+        drawBracketHandle(
           bX,
+          'out',
           'B',
-          hoverHandle === 'b' || isDragging === 'b' ? '#6fe0d8' : '#4ecdc4',
-          hoverHandle === 'b' || isDragging === 'b'
+          hoverTarget === 'b' || isDragging === 'b' ? '#6fe0d8' : '#4ecdc4',
+          hoverTarget === 'b' || isDragging === 'b'
         );
 
         // A/B duration label
@@ -305,27 +384,36 @@ export default function Timeline() {
       }
     }
 
-    // Playhead
+    // Playhead — draggable circle in ruler + line through tracks
     const playX = timeToX(currentTime);
-    ctx.strokeStyle = '#ffd166';
-    ctx.lineWidth = 2;
-    ctx.shadowColor = '#ffd166';
-    ctx.shadowBlur = 6;
+    const playheadActive = hoverTarget === 'playhead' || isDragging === 'playhead';
+    const playheadR = playheadActive ? PLAYHEAD_RADIUS + 1.5 : PLAYHEAD_RADIUS;
+    const playheadCy = RULER_HEIGHT / 2 + 1;
+
+    ctx.strokeStyle = '#f5c542';
+    ctx.lineWidth = playheadActive ? 2.5 : 2;
     ctx.beginPath();
-    ctx.moveTo(playX, 0);
+    ctx.moveTo(playX, RULER_HEIGHT - 1);
     ctx.lineTo(playX, height);
     ctx.stroke();
-    ctx.shadowBlur = 0;
 
-    // Playhead triangle
-    ctx.fillStyle = '#ffd166';
+    ctx.save();
+    ctx.shadowColor = '#f5c542';
+    ctx.shadowBlur = playheadActive ? 14 : 8;
+    ctx.fillStyle = playheadActive ? '#ffe08a' : '#f5c542';
     ctx.beginPath();
-    ctx.moveTo(playX, 0);
-    ctx.lineTo(playX - 7, 10);
-    ctx.lineTo(playX + 7, 10);
-    ctx.closePath();
+    ctx.arc(playX, playheadCy, playheadR, 0, Math.PI * 2);
     ctx.fill();
-  }, [waveform, duration, currentTime, region, zoom, effectivePixelsPerSecond, timeToX, xToTime, hoverHandle, isDragging]);
+    ctx.strokeStyle = '#3d3200';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = '#1a1400';
+    ctx.beginPath();
+    ctx.arc(playX, playheadCy, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }, [waveform, duration, currentTime, region, zoom, effectivePixelsPerSecond, timeToX, xToTime, hoverTarget, isDragging, activeClip]);
 
   // Auto-scroll to keep playhead visible
   useEffect(() => {
@@ -344,15 +432,50 @@ export default function Timeline() {
     }
   }, [currentTime, timeToX, isDragging]);
 
-  const getHandleAt = useCallback(
-    (x: number) => {
-      const aX = timeToX(region.start);
-      const bX = timeToX(region.end);
-      if (Math.abs(x - aX) < HANDLE_HIT_RADIUS) return 'a';
-      if (Math.abs(x - bX) < HANDLE_HIT_RADIUS) return 'b';
+  const waveformTop = RULER_HEIGHT + VIDEO_TRACK_HEIGHT + TRACK_GAP + 4;
+
+  const getHitTarget = useCallback(
+    (x: number, y: number): HitTarget => {
+      const playX = timeToX(currentTime);
+      const hasRegion = region.end > region.start;
+      const aX = hasRegion ? timeToX(region.start) : null;
+      const bX = hasRegion ? timeToX(region.end) : null;
+
+      const inRuler = y <= RULER_HEIGHT + RULER_HIT_EXTRA;
+      const inWaveform = y >= waveformTop - 8;
+
+      const distPlay = Math.abs(x - playX);
+      const nearPlayhead = distPlay <= PLAYHEAD_HIT_RADIUS;
+
+      const nearA =
+        hasRegion && aX !== null
+          ? x >= aX - 4 && x <= aX + BRACKET_ARM + BRACKET_HIT_RADIUS / 2
+          : false;
+      const nearB =
+        hasRegion && bX !== null
+          ? x >= bX - BRACKET_ARM - BRACKET_HIT_RADIUS / 2 && x <= bX + 4
+          : false;
+
+      // Ruler band: playhead circle has priority (avoids fighting with A/B below)
+      if (inRuler && nearPlayhead) return 'playhead';
+
+      // Waveform band: bracket handles (biased zones so [ and ] are easier to grab)
+      if (inWaveform && hasRegion) {
+        const trackHits: Array<{ target: DragTarget; dist: number }> = [];
+        if (nearA && aX !== null) trackHits.push({ target: 'a', dist: Math.abs(x - aX) });
+        if (nearB && bX !== null) trackHits.push({ target: 'b', dist: Math.abs(x - bX) });
+
+        if (trackHits.length === 1) return trackHits[0].target;
+        if (trackHits.length > 1) {
+          trackHits.sort((a, b) => a.dist - b.dist);
+          return trackHits[0].target;
+        }
+      }
+
+      if (nearPlayhead) return 'playhead';
       return null;
     },
-    [region.start, region.end, timeToX]
+    [currentTime, region.start, region.end, timeToX, waveformTop]
   );
 
   const handleMouseDown = useCallback(
@@ -361,19 +484,22 @@ export default function Timeline() {
       if (!rect) return;
 
       const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
       const time = xToTime(x);
-      const handle = getHandleAt(x);
+      const target = getHitTarget(x, y);
 
-      if (handle === 'a') {
+      if (target === 'a') {
         setIsDragging('a');
-      } else if (handle === 'b') {
+      } else if (target === 'b') {
         setIsDragging('b');
+      } else if (target === 'playhead') {
+        setIsDragging('playhead');
       } else {
         setIsDragging('playhead');
         setCurrentTime(time);
       }
     },
-    [getHandleAt, setCurrentTime]
+    [getHitTarget, setCurrentTime, xToTime]
   );
 
   const handleMouseMove = useCallback(
@@ -381,10 +507,10 @@ export default function Timeline() {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       const x = e.clientX - rect.left;
-      const handle = getHandleAt(x);
-      setHoverHandle(handle);
+      const y = e.clientY - rect.top;
+      setHoverTarget(getHitTarget(x, y));
     },
-    [getHandleAt]
+    [getHitTarget]
   );
 
   useEffect(() => {
@@ -429,119 +555,147 @@ export default function Timeline() {
     setRegion({ start: 0, end });
   };
 
-  const cursor = isDragging === 'a' || isDragging === 'b'
-    ? 'cursor-ew-resize'
-    : isDragging === 'playhead'
-      ? 'cursor-col-resize'
-      : hoverHandle
-        ? 'cursor-ew-resize'
-        : 'cursor-pointer';
+  const cursor =
+    isDragging === 'a' || isDragging === 'b' || hoverTarget === 'a' || hoverTarget === 'b'
+      ? 'cursor-ew-resize'
+      : isDragging === 'playhead'
+        ? 'cursor-grabbing'
+        : hoverTarget === 'playhead'
+          ? 'cursor-grab'
+          : 'cursor-pointer';
+
+  const timelineHeight = RULER_HEIGHT + VIDEO_TRACK_HEIGHT + TRACK_GAP + WAVE_HEIGHT + 16;
+
+  const timelineStatus = useMemo(() => {
+    if (duration > 0 && duration < 1) {
+      return {
+        text: `Clip muy corto (${duration.toFixed(1)}s). Usa 3–10s para mejores resultados.`,
+        tone: 'warning' as const,
+      };
+    }
+    if (duration > 0 && !waveform) {
+      return { text: 'Extrayendo forma de onda…', tone: 'info' as const };
+    }
+    if (duration > 0 && region.end === region.start) {
+      return { text: 'Marca A y B para elegir el segmento de referencia', tone: 'info' as const };
+    }
+    return null;
+  }, [duration, waveform, region.end, region.start]);
 
   return (
-    <div className="border-t border-white/10 bg-[#111] shrink-0">
-      <div className="flex items-center justify-between px-3 py-1 text-xs border-b border-white/10">
-        <div className="flex items-center gap-2 text-white/60">
-          <button
+    <div className="border-t border-white/[0.08] bg-[#121212] shrink-0">
+      <div className="nle-toolbar justify-between flex-wrap gap-y-1">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          <NleIconButton
+            icon={<BracketInIcon size={15} />}
+            label="Marcar A en cabezal (I)"
             onClick={() => setMarkA(currentTime)}
-            className="px-2 py-0.5 bg-[#ff6b6b]/20 text-[#ff6b6b] rounded hover:bg-[#ff6b6b]/30 transition"
-            title="Set A at current playhead (shortcut: I)"
-          >
-            Set A
-          </button>
-          <button
+            variant="accent-a"
+          />
+          <NleIconButton
+            icon={<BracketOutIcon size={15} />}
+            label="Marcar B en cabezal (O)"
             onClick={() => setMarkB(currentTime)}
-            className="px-2 py-0.5 bg-[#4ecdc4]/20 text-[#4ecdc4] rounded hover:bg-[#4ecdc4]/30 transition"
-            title="Set B at current playhead (shortcut: O)"
-          >
-            Set B
-          </button>
-          <button
+            variant="accent-b"
+          />
+          <NleIconButton
+            icon={<Eraser size={14} />}
+            label="Clear A/B region (R)"
             onClick={resetRegion}
-            className="px-2 py-0.5 bg-white/10 text-white/70 rounded hover:bg-white/15 transition"
-            title="Reset A/B to full clip (shortcut: R)"
-          >
-            Clear
-          </button>
-          <button
+          />
+          <NleIconButton
+            icon={<Timer size={14} />}
+            label="Select first 5 seconds"
             onClick={handleAutoRegion}
-            className="px-2 py-0.5 bg-white/10 text-white/70 rounded hover:bg-white/15 transition"
-            title="Select the first 5 seconds as reference"
-          >
-            Auto 5s
-          </button>
-          <span className="text-white/40 hidden sm:inline">
-            Drag red/green handles or use I/O keys
+          />
+          <span className="text-white/35 hidden lg:inline text-[10px] ml-1">
+            I / O · [ ] en pista · círculo = cabezal
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-white/40 mr-1">
+        <div className="flex items-center gap-2">
+          <span className="nle-timecode text-[10px] text-white/50">
             {region.end > region.start
-              ? `${formatSeconds(region.end - region.start)} selected`
-              : 'No A/B selected'}
+              ? `${formatSeconds(region.end - region.start)} IN/OUT`
+              : 'Sin selección'}
           </span>
-          <button
-            onClick={handleZoomOut}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
-            aria-label="Zoom out"
-            title="Zoom out"
-          >
-            −
-          </button>
-          <button
-            onClick={handleZoomReset}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
-            aria-label="Reset zoom"
-            title="Reset zoom"
-          >
-            {zoom < 0.1 ? zoom.toFixed(3) : zoom.toFixed(1)}x
-          </button>
-          <button
-            onClick={handleZoomFit}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
-            aria-label="Fit to view"
-            title="Fit whole clip to view"
-          >
-            Fit
-          </button>
-          <button
-            onClick={handleZoomIn}
-            className="px-2 py-0.5 bg-white/10 rounded hover:bg-white/15 transition focus-visible:ring-1 focus-visible:ring-[#00b4d8]/50 outline-none"
-            aria-label="Zoom in"
-            title="Zoom in"
-          >
-            +
-          </button>
+          <div className="flex items-center gap-0.5 pl-2 border-l border-white/[0.08]">
+            <NleIconButton icon={<ZoomOut size={14} />} label="Zoom out" onClick={handleZoomOut} />
+            <button
+              type="button"
+              onClick={handleZoomReset}
+              className="nle-btn nle-timecode min-w-[3rem] px-2"
+              title="Reset zoom"
+            >
+              {zoom < 0.1 ? zoom.toFixed(3) : zoom.toFixed(1)}×
+            </button>
+            <NleIconButton icon={<Maximize2 size={14} />} label="Fit to view" onClick={handleZoomFit} />
+            <NleIconButton icon={<ZoomIn size={14} />} label="Zoom in" onClick={handleZoomIn} />
+          </div>
         </div>
       </div>
-      <div ref={containerRef} className="relative h-36 bg-[#0a0a0a] overflow-x-auto select-none">
-        {duration > 0 && duration < 1 && (
-          <div className="absolute top-1 left-1/2 -translate-x-1/2 z-10 px-2 py-0.5 rounded bg-yellow-600/80 text-[10px] text-white pointer-events-none">
-            Clip is very short ({duration.toFixed(1)}s). Use 3-10s for best cloning results.
+
+      <div className="flex">
+        {/* Track headers — Premiere/FCP style */}
+        <div
+          className="shrink-0 border-r border-white/[0.08] bg-[#161616] select-none"
+          style={{ width: TRACK_HEADER_WIDTH }}
+        >
+          <div
+            className="border-b border-white/[0.06] flex items-end px-2 pb-1"
+            style={{ height: RULER_HEIGHT }}
+          >
+            <span className="text-[9px] text-white/30 uppercase tracking-wider">Timeline</span>
           </div>
-        )}
-        {duration > 0 && !waveform && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-3 py-1 rounded bg-black/70 text-[11px] text-white/80 pointer-events-none">
-            Extracting waveform…
+          <div
+            className="flex items-center gap-1.5 px-2 border-b border-white/[0.04]"
+            style={{ height: VIDEO_TRACK_HEIGHT + 2 }}
+          >
+            <span className="w-5 h-5 rounded-sm bg-[#5b8def]/20 text-[#5b8def] text-[9px] font-bold flex items-center justify-center">
+              V1
+            </span>
+            <span className="text-[9px] text-white/40 truncate">Video</span>
           </div>
-        )}
-        {duration > 0 && region.end === region.start && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 px-3 py-1 rounded bg-black/70 text-[11px] text-white/80 pointer-events-none">
-            Set A and B to choose a reference segment
+          <div
+            className="flex items-center gap-1.5 px-2"
+            style={{ height: TRACK_GAP + WAVE_HEIGHT + 16 }}
+          >
+            <span className="w-5 h-5 rounded-sm bg-[#3ecf8e]/20 text-[#3ecf8e] text-[9px] font-bold flex items-center justify-center">
+              A1
+            </span>
+            <span className="text-[9px] text-white/40 truncate">Audio</span>
           </div>
-        )}
-        <canvas
-          ref={canvasRef}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={() => setHoverHandle(null)}
-          className={cursor}
-          role="slider"
-          aria-label="Timeline"
-          aria-valuemin={0}
-          aria-valuemax={duration}
-          aria-valuenow={currentTime}
-          tabIndex={0}
-        />
+        </div>
+
+        <div
+          ref={containerRef}
+          className="relative flex-1 bg-[#0d0d0d] overflow-x-auto select-none"
+          style={{ height: timelineHeight }}
+        >
+          {timelineStatus && (
+            <div
+              className={`absolute left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-md text-[10px] pointer-events-none max-w-[calc(100%-1rem)] text-center backdrop-blur-sm border ${
+                timelineStatus.tone === 'warning'
+                  ? 'top-2 bg-amber-950/80 border-amber-500/30 text-amber-100'
+                  : 'top-1/2 -translate-y-1/2 bg-black/75 border-white/10 text-white/80'
+              }`}
+            >
+              {timelineStatus.text}
+            </div>
+          )}
+          <canvas
+            ref={canvasRef}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setHoverTarget(null)}
+            className={cursor}
+            role="slider"
+            aria-label="Timeline"
+            aria-valuemin={0}
+            aria-valuemax={duration}
+            aria-valuenow={currentTime}
+            tabIndex={0}
+          />
+        </div>
       </div>
     </div>
   );

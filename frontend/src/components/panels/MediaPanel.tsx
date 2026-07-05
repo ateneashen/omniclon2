@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
+import { Film, FolderOpen, Clock, Trash2 } from 'lucide-react';
 import { useEditorStore } from '../../stores/editorStore';
 import { logError } from '../../lib/log';
 import { MediaClip, WaveformData, AudioTrack } from '../../types';
@@ -156,30 +157,39 @@ export default function MediaPanel() {
   }, []);
 
   return (
-    <div className="flex flex-col h-full text-sm">
-      <div className="font-medium mb-3 flex items-center justify-between">
-        Media
+    <div className="flex flex-col h-full min-h-0 text-sm">
+      <div className="nle-panel-header mb-3 rounded-t-md -mx-0">
+        <span className="flex items-center gap-1.5">
+          <Film size={12} className="text-[#5b8def]" />
+          Proyecto
+        </span>
         <button
           onClick={handleLoadVideo}
           disabled={isImporting}
-          className="text-xs px-2 py-0.5 bg-[#00b4d8] text-black rounded hover:bg-[#0099b8] disabled:opacity-50 transition"
+          className="nle-btn nle-btn--primary"
         >
-          {isImporting ? 'Loading video & waveform…' : 'Load Video…'}
+          <FolderOpen size={12} />
+          {isImporting ? 'Cargando…' : 'Importar'}
         </button>
       </div>
 
       <div
         className={`
-          flex flex-col items-center justify-center gap-2 text-center
-          border border-dashed rounded p-4 mb-3 transition cursor-pointer
-          ${isDragOver ? 'border-[#00b4d8] bg-[#00b4d8]/10' : 'border-white/20 hover:bg-white/5'}
+          flex flex-col items-center justify-center gap-2.5 text-center
+          border border-dashed rounded-md p-5 mb-3 transition cursor-pointer
+          ${isDragOver
+            ? 'border-[#5b8def] bg-[#5b8def]/10'
+            : 'border-white/[0.12] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/20'}
         `}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onClick={handleLoadVideo}
       >
-        <div className="text-white/60 text-xs">Drop video here or click to browse</div>
-        <div className="text-white/30 text-[10px]">{VIDEO_EXTENSIONS.map((ext) => `.${ext}`).join(', ')}</div>
+        <div className="w-10 h-10 rounded-md bg-[#5b8def]/10 border border-[#5b8def]/20 flex items-center justify-center">
+          <Film size={18} className="text-[#5b8def]" />
+        </div>
+        <div className="text-white/60 text-xs">Suelta un video aquí o haz clic</div>
+        <div className="text-white/25 text-[9px] font-mono">{VIDEO_EXTENSIONS.map((ext) => `.${ext}`).join('  ')}</div>
       </div>
 
       {lastError && (
@@ -190,17 +200,21 @@ export default function MediaPanel() {
 
       {recentClips.length > 0 && (
         <div className="mb-3">
-          <div className="text-[10px] text-white/40 mb-1">Recent videos</div>
+          <div className="text-[9px] text-white/35 uppercase tracking-wider mb-1.5 font-semibold">Recientes</div>
           <ul className="space-y-1 max-h-28 overflow-auto">
             {recentClips.map((clip) => (
               <li
                 key={clip.path}
-                className="flex items-center justify-between px-2 py-1 rounded text-xs hover:bg-white/5 cursor-pointer transition group"
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs hover:bg-white/[0.05] cursor-pointer transition group border border-transparent hover:border-white/[0.06]"
                 onClick={() => importClip(clip.path)}
                 title={clip.path}
               >
-                <span className="truncate pr-2 flex-1 text-white/70">{clip.name}</span>
-                <span className="text-white/40 shrink-0">{clip.duration.toFixed(1)}s</span>
+                <Film size={12} className="text-[#5b8def]/60 shrink-0" />
+                <span className="truncate flex-1 text-white/70">{clip.name}</span>
+                <span className="nle-timecode text-white/35 shrink-0 text-[10px] flex items-center gap-0.5">
+                  <Clock size={9} />
+                  {clip.duration.toFixed(1)}s
+                </span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -210,11 +224,11 @@ export default function MediaPanel() {
                       return next;
                     });
                   }}
-                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1 transition ml-1"
+                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition"
                   aria-label={`Remove ${clip.name} from recent`}
                   title="Remove from recent"
                 >
-                  ✕
+                  <Trash2 size={12} />
                 </button>
               </li>
             ))}
@@ -223,38 +237,38 @@ export default function MediaPanel() {
       )}
 
       <div className="flex-1 overflow-auto min-h-0">
+        <div className="text-[9px] text-white/35 uppercase tracking-wider mb-1.5 font-semibold">Clips en timeline</div>
         {clips.length === 0 ? (
-          <div className="text-white/30 text-xs text-center py-4">No clips loaded</div>
+          <div className="text-white/25 text-xs text-center py-6 nle-panel rounded-md">Sin clips cargados</div>
         ) : (
           <ul className="space-y-1">
             {clips.map((clip) => (
               <li
                 key={clip.id}
                 className={`
-                  group flex items-center justify-between px-2 py-1.5 rounded text-xs cursor-pointer transition
-                  ${activeClipId === clip.id ? 'bg-[#00b4d8]/20 text-white' : 'hover:bg-white/5 text-white/70'}
+                  group flex items-center gap-2 px-2 py-2 rounded-md text-xs cursor-pointer transition border
+                  ${activeClipId === clip.id
+                    ? 'bg-[#5b8def]/12 border-[#5b8def]/30 text-white'
+                    : 'border-transparent hover:bg-white/[0.04] hover:border-white/[0.06] text-white/70'}
                 `}
+                onClick={() => setActiveClip(clip.id)}
               >
-                <span
-                  className="truncate pr-2 flex-1"
-                  onClick={() => setActiveClip(clip.id)}
-                >
-                  {clip.name}
+                <span className="w-6 h-6 rounded-sm bg-[#5b8def]/15 text-[#5b8def] text-[8px] font-bold flex items-center justify-center shrink-0">
+                  V1
                 </span>
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-white/40">{clip.duration.toFixed(1)}s</span>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeClip(clip.id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 px-1 transition"
-                    aria-label={`Remove ${clip.name}`}
-                    title="Remove clip"
-                  >
-                    ✕
-                  </button>
-                </div>
+                <span className="truncate flex-1">{clip.name}</span>
+                <span className="nle-timecode text-white/35 shrink-0">{clip.duration.toFixed(1)}s</span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeClip(clip.id);
+                  }}
+                  className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition"
+                  aria-label={`Remove ${clip.name}`}
+                  title="Remove clip"
+                >
+                  <Trash2 size={12} />
+                </button>
               </li>
             ))}
           </ul>
