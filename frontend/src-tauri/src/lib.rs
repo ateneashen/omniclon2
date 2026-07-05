@@ -275,6 +275,18 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, cwd| {
+            diagnostics::log_diagnostic(
+                app,
+                "WARN",
+                "App",
+                "Another OmniClon 2 instance launch attempt was detected and blocked",
+                Some(&format!("cwd={}", cwd)),
+            );
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+            }
+        }))
         .manage(BackendState::new())
         .invoke_handler(tauri::generate_handler![
             greet,

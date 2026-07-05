@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-05
+
+### Added
+- **Single-instance guard**: the desktop app now blocks a second launch attempt and brings the existing window to the front. The event is logged to the diagnostics panel.
+- **Automatic reference video restore**: loading a saved script now auto-imports the original reference video and restores the A/B roll region, audio track, and waveform.
+- **GPU/CPU device visibility**: the bootstrap splash now shows whether the voice cloning engine is running on GPU (CUDA), Apple GPU (MPS), or CPU.
+- `OMNICLON2_VOICE_DEVICE` environment variable to force "cuda", "cpu", or "mps" for voice inference.
+
+### Changed
+- Invalid `instruct` values now return HTTP 400 with OmniVoice's detailed validation message instead of falling back silently.
+- Voice generation logs now include the actual inference device and elapsed time.
+
+### Fixed
+- Backend stdout/stderr forced to UTF-8 to avoid `UnicodeEncodeError` crashes when OmniVoice prints non-ASCII error text on Windows.
+
 ## [1.1.2] - 2026-07-05
 
 ### Fixed

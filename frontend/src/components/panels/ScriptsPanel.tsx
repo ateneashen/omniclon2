@@ -93,17 +93,8 @@ export default function ScriptsPanel() {
   ]);
 
   const handleLoad = useCallback(async (script: ScriptItem) => {
-    await applyScriptSnapshot(script);
-    const clipMissing =
-      (script.clipId || script.clipPath) &&
-      !useEditorStore.getState().clips.some(
-        (c) => c.id === script.clipId || c.path === script.clipPath
-      );
-    setLoadNotice(
-      clipMissing
-        ? 'Guion cargado. Importa el video de referencia para restaurar A/B.'
-        : 'Guion y ajustes restaurados.'
-    );
+    const result = await applyScriptSnapshot(script);
+    setLoadNotice(result.message);
   }, []);
 
   const handleDelete = useCallback((id: string) => {

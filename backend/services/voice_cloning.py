@@ -40,6 +40,29 @@ AUTONOMOUS_MODEL_ROOT = PROJECT_ROOT / "data" / "models"
 AUTONOMOUS_K2_PATH = AUTONOMOUS_MODEL_ROOT / "k2-fsa_OmniVoice"
 
 
+def _resolve_device() -> str:
+    """Resolve the inference device, honoring an explicit env override first.
+
+    OMNICLON2_VOICE_DEVICE may be set to "cuda", "cpu", or "mps".
+    Without an override we prefer CUDA, then MPS (Apple Silicon), then CPU.
+    """
+    env_device = os.environ.get("OMNICLON2_VOICE_DEVICE", "").strip().lower()
+    if env_device:
+        if env_device == "cuda" and torch.cuda.is_available():
+            return "cuda"
+        if env_device == "mps" and torch.backends.mps.is_available():
+            return "mps"
+        if env_device == "cpu":
+            return "cpu"
+        print(f"[VoiceCloningService] Ignoring unsupported OMNICLON2_VOICE_DEVICE={env_device}; auto-detecting.")
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def to_short_path(path: str) -> str:
     """Return the Windows short (8.3) path for a given path if possible.
 
@@ -134,7 +157,7 @@ class VoiceCloningService:
         self.model_path: Optional[Path] = None
         self._k2fsa_loaded = False
         self._k2fsa_files_verified = False
-        self.device: str = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device: str = _resolve_device()
         self.real_omnivoice = None
         self.omnivoice_config: Optional[dict] = None
 
@@ -347,11 +370,15 @@ class VoiceCloningService:
         try:
             from omnivoice.models.omnivoice import OmniVoice
 
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            device = _resolve_device()
             self.device = device
             dtype = torch.float16 if device == "cuda" else torch.float32
 
             print(f"[VoiceCloningService] Loading real OmniVoice with device={device}, dtype={dtype}...")
+
+            # Enable cuDNN autotuner on CUDA for consistent GPU performance.
+            if device == "cuda":
+                torch.backends.cudnn.benchmark = True
 
             # Load with PC-optimized settings
             model = OmniVoice.from_pretrained(
@@ -364,6 +391,19 @@ class VoiceCloningService:
 
             # Ensure inference mode
             model.eval()
+
+            # Verify the model actually landed on the intended accelerator.
+            actual_device = str(getattr(model, "device", "unknown"))
+            print(f"[VoiceCloningService] Model device after load: {actual_device}")
+            if device == "cuda" and not actual_device.startswith("cuda"):
+                print(
+                    "[VoiceCloningService] WARNING: CUDA was requested but the model did not land on a CUDA device. "
+                    "Inference will be very slow. Check CUDA drivers and PyTorch installation."
+                )
+            elif device == "mps" and not actual_device.startswith("mps"):
+                print(
+                    "[VoiceCloningService] WARNING: MPS was requested but the model did not land on the Apple GPU."
+                )
 
             self.real_omnivoice = model
             self._k2fsa_loaded = True
@@ -447,7 +487,12 @@ class VoiceCloningService:
             if request.t_shift is not None:
                 generate_kwargs["t_shift"] = request.t_shift
 
+            model_device = str(getattr(self.real_omnivoice, "device", "unknown"))
+            print(f"[VoiceCloningService] Running generation on device={model_device} num_step={request.num_step}")
+            t0 = time.perf_counter()
             audio_tensors = self.real_omnivoice.generate(**generate_kwargs)
+            t1 = time.perf_counter()
+            print(f"[VoiceCloningService] Generation completed in {t1 - t0:.2f}s on {model_device}")
 
             # generate returns list of (1, T) tensors
             if isinstance(audio_tensors, (list, tuple)):

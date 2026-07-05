@@ -1,5 +1,38 @@
 # OmniClon 2 — Rewrite Progress Log
 
+## 2026-07-05 — v1.2.0 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Add single-instance guard, robust script snapshot restore with reference video, and GPU/CPU visibility.
+
+### Changes Made
+1. **Single-instance guard**
+   - Added `tauri-plugin-single-instance`.
+   - Second launch attempts are blocked, existing window is focused, and a diagnostic log entry is written.
+2. **Script snapshot restore**
+   - `applyScriptSnapshot()` now auto-imports the reference video if it is not already loaded.
+   - Restores active clip, A/B roll region, playhead position, selected audio/subtitle tracks, and waveform.
+3. **GPU/CPU assurance & visibility**
+   - `OMNICLON2_VOICE_DEVICE` env override for device selection.
+   - Logs model device after load and warns if it does not land on the requested accelerator.
+   - Logs per-generation device and elapsed time.
+   - Splash screen shows GPU/CPU badge.
+4. **Version bump**
+   - All manifests bumped to `1.2.0`.
+
+### Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+- `python -m py_compile backend/services/voice_cloning.py` ✓
+- Manual backend test: invalid instruct returns HTTP 400; valid generation runs on `cuda:0` in ~5s for 8 steps.
+
+### Commit & Tag
+- Release commit: `release: v1.2.0 — single instance, script restore, GPU visibility`
+- Annotated tag: `v1.2.0`
+
+---
+
 ## 2026-07-05 — v1.1.2 Released
 
 **Date:** 2026-07-05  

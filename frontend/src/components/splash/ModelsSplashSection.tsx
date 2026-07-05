@@ -118,6 +118,11 @@ export default function ModelsSplashSection() {
         <div className="mt-2 pt-2 border-t border-white/[0.06] text-[10px] text-emerald-300/85">
           Motor de clonación: <span className="font-medium">{voiceStatus.primary_cloning_model}</span>
           {voiceStatus.k2fsa_loaded ? ' · pesos listos' : voiceStatus.k2fsa_files_verified ? ' · assets verificados' : ''}
+          {voiceStatus.device && (
+            <span className={voiceStatus.device.startsWith('cuda') ? 'text-[#8ab4f8]' : 'text-orange-300'}>
+              {' · '}{voiceStatus.device.startsWith('cuda') ? 'GPU' : voiceStatus.device.startsWith('mps') ? 'Apple GPU' : 'CPU'}
+            </span>
+          )}
         </div>
       )}
     </div>
