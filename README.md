@@ -16,6 +16,8 @@
 
 > 🇪🇸 **Español** (principal) | 🇬🇧 [English below](#english)
 
+> 👶 **¿Eres novato?** Empieza por la [Guía de usuario paso a paso](docs/GUIA_USUARIO.md) en lugar de este README técnico.
+
 ---
 
 ## ¿Qué es OmniClon 2?
