@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { Activity, Cpu, Sparkles } from 'lucide-react';
+import { APP_VERSION } from '../../lib/version';
 import { useBackendStatus } from '../../hooks/useBackendStatus';
 import { useVoiceStore, startVoiceStatusPolling } from '../../stores/voiceStore';
 
@@ -42,6 +43,9 @@ export default function Header() {
     <header className="h-11 border-b border-white/[0.08] flex items-center px-3 sm:px-4 text-sm font-medium justify-between shrink-0 bg-[#161616] gap-3">
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         <span className="font-semibold tracking-tight truncate">OmniClon 2</span>
+        <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-white/[0.08] text-white/50 border border-white/[0.08] tracking-normal">
+          {APP_VERSION}
+        </span>
         <span className="hidden sm:inline nle-badge text-white/30 normal-case tracking-normal font-normal">
           Voice Clone Studio
         </span>

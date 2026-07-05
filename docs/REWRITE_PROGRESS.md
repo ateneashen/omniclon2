@@ -5,6 +5,48 @@ This is the primary source of truth for the history of this clean rewrite.
 
 ---
 
+## 2026-07-05 — v1.0.0 Released
+
+**Date:** 2026-07-05  
+**Actor:** Kimi Code CLI  
+**Goal:** Freeze the current working state as the first stable release and prepare the repository for professional GitHub publication.
+
+### What Was Done
+1. **Reviewed all pending changes** with the user.
+2. **Applied minor polish** to the pending UI redesign:
+   - Switched timeline timecode to milliseconds to avoid a hard-coded 30 fps assumption.
+   - Changed ffmpeg frame capture to output-side seek for frame-accurate grabs.
+   - Normalized trailing newlines and added `.gitattributes` for consistent line endings.
+3. **Committed the consolidated base** as `feat(ui): NLE-style redesign, frame capture, script snapshots, voice options persistence`.
+4. **Bumped all manifests to `1.0.0`:**
+   - `frontend/package.json`
+   - `frontend/src-tauri/Cargo.toml`
+   - `frontend/src-tauri/tauri.conf.json`
+   - `backend/pyproject.toml`
+   - Added `frontend/src/lib/version.ts` as the single source of truth for the UI version badge.
+5. **Added a version badge** to the app header (`Header.tsx`) displaying `v1.0.0`.
+6. **Rewrote `README.md`** as a bilingual, GitHub-ready document with:
+   - Clear hero section and badges.
+   - "What you need to install yourself" prerequisites table.
+   - "Models you must download yourself" section (k2-fsa/OmniVoice, optional KittenTTS).
+   - Quick start, usage flow, release build instructions, project structure, license, and credits.
+7. **Created `CHANGELOG.md`** for the `1.0.0` release.
+8. **Created `LICENSE`** (MIT).
+9. **Updated `docs/ARCHITECTURE.md`** to reflect the stable release status.
+
+### Final Validation
+- `cargo check` ✓
+- `npx tsc --noEmit` ✓
+- Git working tree clean after release commit and tag.
+
+### Commit & Tag
+- Release commit: `release: v1.0.0 — stable A/B voice clone studio`
+- Annotated tag: `v1.0.0`
+
+**Status:** v1.0.0 released and repository ready for GitHub.
+
+---
+
 ## 2026-06-18 — Deep Audit & Core Flow Hardening (Autonomous, GPU-optimized)
 
 **Date:** 2026-06-18

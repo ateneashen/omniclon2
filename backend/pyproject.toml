@@ -1,6 +1,6 @@
 [project]
 name = "backend"
-version = "0.1.0"
+version = "1.0.0"
 description = "OmniClon 2 Python backend — autonomous voice cloning with k2-fsa/OmniVoice"
 requires-python = ">=3.11"
 dependencies = [

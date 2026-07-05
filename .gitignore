@@ -47,8 +47,10 @@ backend/.venv/
 backend/venv/
 
 # uv
+# We usually want to commit uv.lock for reproducibility, but only when it exists.
+# If you run `uv lock`, uncomment the next line to track it.
+# !uv.lock
 uv.lock
-!uv.lock   # We usually want to commit uv.lock for reproducibility (reference does this)
 
 # PyInstaller
 *.manifest
@@ -110,11 +112,19 @@ tmp/
 *.mov
 !tests/fixtures/*.mp4   # allow small test fixtures if we add them later
 
+# Screenshots for documentation are welcome; keep root screenshots/ ignored.
+!docs/screenshots/
+!docs/screenshots/*.png
+!docs/screenshots/*.jpg
+!docs/screenshots/*.jpeg
+
 # --- Diagnostic / AI debugging artifacts (we usually want these local only) ---
 *.diagnostic-bundle.zip
 crash-*.log
 screenshots/
+scripts/cdp_*.py
 scripts/cdp_e2e_result.json
+.kimi/
 
 # --- Tauri bundle outputs ---
 src-tauri/target/release/bundle/
@@ -124,4 +134,4 @@ src-tauri/target/release/bundle/
 !backend/.gitkeep
 !frontend/.gitkeep
 !data/.gitkeep
-scripts/cdp_*.py
+!docs/screenshots/.gitkeep

@@ -1,6 +1,7 @@
 # OmniClon 2 — Architecture Overview
 
-**High-level view of the system (living document).**
+**High-level view of the system.**  
+*Status: v1.0.0 released — 2026-07-05. This document reflects the stable release architecture.*
 
 ## Guiding Principles
 
