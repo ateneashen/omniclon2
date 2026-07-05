@@ -169,6 +169,14 @@ Cuando la app esté abierta, sigue estos pasos:
   C:\AI\OmniClon2\data\models\k2-fsa_OmniVoice\model.safetensors
   ```
 - Si no está, descarga los pesos de `k2-fsa/OmniVoice` en Hugging Face y colócalos ahí.
+- **Si copiaste el `.exe` a otra carpeta**, la app busca los modelos en una carpeta `data` junto al exe. Es decir, si tu exe está en:
+  ```
+  D:\MisApps\OmniClon2\omniclon2.exe
+  ```
+  los modelos deben estar en:
+  ```
+  D:\MisApps\OmniClon2\data\models\k2-fsa_OmniVoice\
+  ```
 - Para más detalles técnicos, lee [`docs/MODELOS_Y_DISTRIBUCION.md`](MODELOS_Y_DISTRIBUCION.md).
 
 ### El audio generado suena raro o robótico

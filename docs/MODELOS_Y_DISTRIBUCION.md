@@ -75,6 +75,41 @@ La detección no se basa solo en el nombre de la carpeta: también verifica arch
 
 > ⚠️ El destino también necesita `ffmpeg` y `ffprobe` en el PATH, además de las dependencias del sistema de Tauri (Visual C++ Redistributable en algunos casos).
 
+### ¿Dónde busca exactamente la app los modelos?
+
+El backend recibe una variable de entorno `OMNICLON2_DATA_DIR` que le dice dónde están los datos. Rust la resuelve en este orden:
+
+1. **Variable de entorno** `OMNICLON2_DATA_DIR` (si existe y apunta a una carpeta válida).
+2. **Carpeta de desarrollo** `C:\AI\OmniClon2\data` (solo para desarrollo en esta máquina).
+3. **Modo portable** relativo al `.exe`:
+   - `<carpeta_del_exe>\..\data` (por si el exe está en `OmniClon2/bin/omniclon2.exe`)
+   - `<carpeta_del_exe>\data` (por si el exe está en `OmniClon2/omniclon2.exe`)
+4. **Fallback** de Tauri: `%LOCALAPPDATA%\com.omniclon.studio2\data\`
+
+**Ejemplo práctico:**
+
+Si copias el exe a:
+```
+D:\MisApps\OmniClon2\omniclon2.exe
+```
+
+Los modelos deben estar en:
+```
+D:\MisApps\OmniClon2\data\models\k2-fsa_OmniVoice\
+```
+
+O, si prefieres separar el exe de los datos, pon:
+```
+D:\MisApps\OmniClon2\
+├── bin\
+│   └── omniclon2.exe
+└── data\
+    └── models\
+        └── k2-fsa_OmniVoice\
+```
+
+> ⚠️ **Trampa común:** Si en la máquina existe `C:\AI\OmniClon2\data`, la app usará SIEMPRE esa carpeta en lugar de la `data` que hayas puesto junto al exe. Esto solo pasa en máquinas de desarrollo; en otras PCs no es problema.
+
 ### Opción B: Usar el instalador `.exe` o `.msi`
 
 Los instaladores generan el acceso directo y desempaquetan la app en `AppData/Local` o `Program Files`. Sin embargo, **tampoco incluyen los modelos**.
